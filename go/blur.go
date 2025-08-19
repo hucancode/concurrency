@@ -7,6 +7,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,127 +17,203 @@ import (
 	"time"
 )
 
-// WorkUnit represents a chunk of work for parallel processing
-type WorkUnit struct {
-	startY int
-	endY   int
+// ImageData represents image as a flat array for better performance
+type ImageData struct {
+	data     []uint8
+	width    int
+	height   int
+	channels int
 }
 
-// RowData represents processed pixel data for a row
-type RowData struct {
-	y      int
-	pixels []color.RGBA
-}
-
-// boxBlur applies a box blur filter to an image using goroutines and channels
-func boxBlur(src image.Image, radius int, workers int) image.Image {
-	bounds := src.Bounds()
-	width := bounds.Max.X - bounds.Min.X
-	height := bounds.Max.Y - bounds.Min.Y
+// generateGaussianKernel creates a 1D Gaussian kernel
+func generateGaussianKernel(radius int) []float64 {
+	size := 2*radius + 1
+	kernel := make([]float64, size)
+	sigma := float64(radius) / 3.0 // Standard deviation
+	sum := 0.0
 	
-	// Create output image
-	dst := image.NewRGBA(image.Rect(0, 0, width, height))
-	
-	// Create work channel and result channel
-	workChan := make(chan WorkUnit, workers)
-	resultChan := make(chan RowData, height)
-	var wg sync.WaitGroup
-	
-	// Calculate kernel size
-	kernelSize := 2*radius + 1
-	kernelArea := kernelSize * kernelSize
-	
-	// Start worker goroutines
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for work := range workChan {
-				processRegion(src, work.startY, work.endY, radius, kernelArea, resultChan)
-			}
-		}()
+	// Calculate Gaussian values
+	for i := 0; i < size; i++ {
+		x := float64(i - radius)
+		kernel[i] = math.Exp(-(x*x) / (2.0 * sigma * sigma))
+		sum += kernel[i]
 	}
 	
-	// Distribute work
-	go func() {
-		rowsPerWorker := height / workers
-		for i := 0; i < workers; i++ {
-			startY := i * rowsPerWorker
-			endY := startY + rowsPerWorker
-			if i == workers-1 {
-				endY = height
-			}
-			workChan <- WorkUnit{startY: startY, endY: endY}
-		}
-		close(workChan)
-	}()
+	// Normalize kernel
+	for i := 0; i < size; i++ {
+		kernel[i] /= sum
+	}
 	
-	// Collector goroutine
-	go func() {
-		wg.Wait()
-		close(resultChan)
-	}()
+	return kernel
+}
+
+// transposeImage transposes image data for better cache locality
+func transposeImage(src *ImageData) *ImageData {
+	dst := &ImageData{
+		data:     make([]uint8, len(src.data)),
+		width:    src.height, // Swapped
+		height:   src.width,  // Swapped
+		channels: src.channels,
+	}
 	
-	// Collect results and write to destination
-	for rowData := range resultChan {
-		for x, pixel := range rowData.pixels {
-			dst.Set(x, rowData.y, pixel)
+	for y := 0; y < src.height; y++ {
+		for x := 0; x < src.width; x++ {
+			srcIdx := (y*src.width + x) * src.channels
+			dstIdx := (x*src.height + y) * src.channels
+			
+			copy(dst.data[dstIdx:dstIdx+src.channels], src.data[srcIdx:srcIdx+src.channels])
 		}
 	}
 	
 	return dst
 }
 
-// processRegion processes a horizontal strip of the image
-func processRegion(src image.Image, startY, endY, radius, kernelArea int, resultChan chan<- RowData) {
-	bounds := src.Bounds()
-	minX := bounds.Min.X
-	minY := bounds.Min.Y
-	maxX := bounds.Max.X
-	maxY := bounds.Max.Y
-	width := maxX - minX
-	height := maxY - minY
-	
+// horizontalGaussianBlur applies horizontal Gaussian blur
+func horizontalGaussianBlur(src *ImageData, dst *ImageData, kernel []float64, radius int, startY, endY int) {
 	for y := startY; y < endY; y++ {
-		// Process entire row into buffer
-		rowPixels := make([]color.RGBA, width)
-		
-		for x := 0; x < width; x++ {
-			var rSum, gSum, bSum, aSum uint32
+		for x := 0; x < src.width; x++ {
+			var rSum, gSum, bSum, aSum float64
 			
-			// Calculate actual bounds to eliminate branch in inner loop
-			yStart := max(0, y-radius)
-			yEnd := min(height-1, y+radius)
-			xStart := max(0, x-radius)
-			xEnd := min(width-1, x+radius)
-			
-			// Pre-calculate pixel count
-			validPixels := uint32((yEnd - yStart + 1) * (xEnd - xStart + 1))
-			
-			// Now we can iterate without boundary checks
-			for ky := yStart; ky <= yEnd; ky++ {
-				for kx := xStart; kx <= xEnd; kx++ {
-					// Accumulate pixel values - no bounds check needed
-					r, g, b, a := src.At(kx+minX, ky+minY).RGBA()
-					rSum += r
-					gSum += g
-					bSum += b
-					aSum += a
+			// Apply Gaussian kernel
+			for k := -radius; k <= radius; k++ {
+				sx := x + k
+				// Clamp to image bounds
+				if sx < 0 {
+					sx = 0
+				} else if sx >= src.width {
+					sx = src.width - 1
+				}
+				
+				idx := (y*src.width + sx) * src.channels
+				weight := kernel[k+radius]
+				
+				rSum += float64(src.data[idx]) * weight
+				gSum += float64(src.data[idx+1]) * weight
+				bSum += float64(src.data[idx+2]) * weight
+				if src.channels == 4 {
+					aSum += float64(src.data[idx+3]) * weight
+				} else {
+					aSum += 255.0 * weight
 				}
 			}
 			
-			// Average the accumulated values
-			rowPixels[x] = color.RGBA{
-				R: uint8(rSum / validPixels >> 8),
-				G: uint8(gSum / validPixels >> 8),
-				B: uint8(bSum / validPixels >> 8),
-				A: uint8(aSum / validPixels >> 8),
+			// Write result
+			dstIdx := (y*dst.width + x) * dst.channels
+			dst.data[dstIdx] = uint8(math.Round(rSum))
+			dst.data[dstIdx+1] = uint8(math.Round(gSum))
+			dst.data[dstIdx+2] = uint8(math.Round(bSum))
+			if dst.channels == 4 {
+				dst.data[dstIdx+3] = uint8(math.Round(aSum))
 			}
 		}
-		
-		// Send completed row
-		resultChan <- RowData{y: y, pixels: rowPixels}
 	}
+}
+
+// gaussianBlur applies a separable Gaussian blur filter
+func gaussianBlur(src image.Image, radius int, workers int) image.Image {
+	bounds := src.Bounds()
+	width := bounds.Max.X - bounds.Min.X
+	height := bounds.Max.Y - bounds.Min.Y
+	
+	// Generate Gaussian kernel
+	kernel := generateGaussianKernel(radius)
+	
+	// Convert to flat array for better performance
+	srcData := &ImageData{
+		data:     make([]uint8, width*height*4),
+		width:    width,
+		height:   height,
+		channels: 4,
+	}
+	
+	// Copy image data
+	idx := 0
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			r, g, b, a := src.At(x, y).RGBA()
+			srcData.data[idx] = uint8(r >> 8)
+			srcData.data[idx+1] = uint8(g >> 8)
+			srcData.data[idx+2] = uint8(b >> 8)
+			srcData.data[idx+3] = uint8(a >> 8)
+			idx += 4
+		}
+	}
+	
+	// Allocate buffers
+	dstHorizontal := &ImageData{
+		data:     make([]uint8, len(srcData.data)),
+		width:    width,
+		height:   height,
+		channels: 4,
+	}
+	
+	// Phase 1: Horizontal blur
+	var wg sync.WaitGroup
+	rowsPerWorker := height / workers
+	
+	for i := 0; i < workers; i++ {
+		startY := i * rowsPerWorker
+		endY := startY + rowsPerWorker
+		if i == workers-1 {
+			endY = height
+		}
+		
+		wg.Add(1)
+		go func(start, end int) {
+			defer wg.Done()
+			horizontalGaussianBlur(srcData, dstHorizontal, kernel, radius, start, end)
+		}(startY, endY)
+	}
+	wg.Wait()
+	
+	// Transpose for vertical pass
+	dstHorizontalTransposed := transposeImage(dstHorizontal)
+	
+	// Allocate transposed destination
+	dstVerticalTransposed := &ImageData{
+		data:     make([]uint8, len(srcData.data)),
+		width:    height, // Swapped
+		height:   width,  // Swapped
+		channels: 4,
+	}
+	
+	// Phase 2: Vertical blur (on transposed data, so it's horizontal in memory)
+	rowsPerWorker = width / workers
+	
+	for i := 0; i < workers; i++ {
+		startY := i * rowsPerWorker
+		endY := startY + rowsPerWorker
+		if i == workers-1 {
+			endY = width
+		}
+		
+		wg.Add(1)
+		go func(start, end int) {
+			defer wg.Done()
+			horizontalGaussianBlur(dstHorizontalTransposed, dstVerticalTransposed, kernel, radius, start, end)
+		}(startY, endY)
+	}
+	wg.Wait()
+	
+	// Transpose back to original orientation
+	dstFinal := transposeImage(dstVerticalTransposed)
+	
+	// Convert back to image
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	idx = 0
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			dst.Set(x, y, color.RGBA{
+				R: dstFinal.data[idx],
+				G: dstFinal.data[idx+1],
+				B: dstFinal.data[idx+2],
+				A: dstFinal.data[idx+3],
+			})
+			idx += 4
+		}
+	}
+	
+	return dst
 }
 
 // loadImage loads an image from file using standard library
@@ -182,17 +259,17 @@ func saveImage(img image.Image, path string) error {
 
 func main() {
 	args := os.Args
-
+	
 	if len(args) < 2 {
 		fmt.Fprintf(os.Stderr, "Usage: %s <input_image> [output_image] [radius] [workers]\n", args[0])
 		os.Exit(1)
 	}
-
+	
 	inputPath := args[1]
 	outputPath := "blurred.png"
 	radius := 5
 	workers := runtime.NumCPU()
-
+	
 	if len(args) > 2 {
 		outputPath = args[2]
 	}
@@ -206,28 +283,40 @@ func main() {
 			workers = w
 		}
 	}
-
+	
 	// Load image
 	fmt.Printf("Loading image: %s\n", inputPath)
+	loadStart := time.Now()
 	img, err := loadImage(inputPath)
 	if err != nil {
 		log.Fatalf("Failed to load image: %v", err)
 	}
-
-	// Apply blur
-	fmt.Printf("Applying box blur with radius %d using %d workers...\n", radius, workers)
-	start := time.Now()
-
-	result := boxBlur(img, radius, workers)
-
-	duration := time.Since(start)
-	fmt.Printf("Blur completed in %v\n", duration)
-
+	loadDuration := time.Since(loadStart)
+	fmt.Printf("Image loaded in %v\n", loadDuration)
+	
+	// Get image dimensions
+	bounds := img.Bounds()
+	width := bounds.Max.X - bounds.Min.X
+	height := bounds.Max.Y - bounds.Min.Y
+	fmt.Printf("Image size: %dx%d\n", width, height)
+	fmt.Printf("Applying Gaussian blur with radius %d using %d workers...\n", radius, workers)
+	blurStart := time.Now()
+	
+	result := gaussianBlur(img, radius, workers)
+	
+	blurDuration := time.Since(blurStart)
+	fmt.Printf("Blur processing completed in %v (includes transpose operations)\n", blurDuration)
+	
 	// Save result
 	fmt.Printf("Saving to: %s\n", outputPath)
+	saveStart := time.Now()
 	if err := saveImage(result, outputPath); err != nil {
 		log.Fatalf("Failed to save image: %v", err)
 	}
-
+	saveDuration := time.Since(saveStart)
+	fmt.Printf("Image saved in %v\n", saveDuration)
+	
+	totalDuration := time.Since(loadStart)
+	fmt.Printf("Total time: %v\n", totalDuration)
 	fmt.Println("Done!")
 }

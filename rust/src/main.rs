@@ -2,76 +2,158 @@ use image::{DynamicImage, GenericImageView, ImageBuffer, Rgba};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-fn box_blur_threads(img: &DynamicImage, radius: u32, num_threads: usize) -> DynamicImage {
-    let (width, height) = img.dimensions();
-    let src = img.to_rgba8();
-    let dst = Arc::new(Mutex::new(ImageBuffer::<Rgba<u8>, Vec<u8>>::new(width, height)));
+#[derive(Debug)]
+struct ImageData {
+    data: Vec<u8>,
+    width: usize,
+    height: usize,
+    channels: usize,
+}
+
+impl ImageData {
+    fn from_dynamic_image(img: &DynamicImage) -> Self {
+        let (width, height) = img.dimensions();
+        let rgba = img.to_rgba8();
+        let data = rgba.into_raw();
+
+        ImageData {
+            data,
+            width: width as usize,
+            height: height as usize,
+            channels: 4,
+        }
+    }
+
+    fn to_dynamic_image(&self) -> DynamicImage {
+        let img_buffer = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(
+            self.width as u32,
+            self.height as u32,
+            self.data.clone(),
+        ).expect("Failed to create image buffer");
+
+        DynamicImage::ImageRgba8(img_buffer)
+    }
+
+    fn transpose(&self) -> ImageData {
+        let mut dst = ImageData {
+            data: vec![0; self.data.len()],
+            width: self.height,
+            height: self.width,
+            channels: self.channels,
+        };
+
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let src_idx = (y * self.width + x) * self.channels;
+                let dst_idx = (x * self.height + y) * self.channels;
+
+                dst.data[dst_idx..dst_idx + self.channels]
+                    .copy_from_slice(&self.data[src_idx..src_idx + self.channels]);
+            }
+        }
+
+        dst
+    }
+}
+
+fn generate_gaussian_kernel(radius: usize) -> Vec<f64> {
+    let size = 2 * radius + 1;
+    let mut kernel = vec![0.0; size];
+    let sigma = radius as f64 / 3.0;
+    let mut sum = 0.0;
     
-    let rows_per_thread = height as usize / num_threads;
+    // Calculate Gaussian values
+    for i in 0..size {
+        let x = i as f64 - radius as f64;
+        kernel[i] = (-x * x / (2.0 * sigma * sigma)).exp();
+        sum += kernel[i];
+    }
+    
+    // Normalize kernel
+    for i in 0..size {
+        kernel[i] /= sum;
+    }
+    
+    kernel
+}
+
+fn horizontal_gaussian_blur(src: &ImageData, dst: Arc<Mutex<ImageData>>, kernel: &[f64], radius: usize, start_y: usize, end_y: usize) {
+    let mut local_rows = Vec::new();
+    
+    for y in start_y..end_y {
+        let mut row_data = vec![0u8; src.width * src.channels];
+        
+        for x in 0..src.width {
+            let mut r_sum = 0.0;
+            let mut g_sum = 0.0;
+            let mut b_sum = 0.0;
+            let mut a_sum = 0.0;
+            
+            // Apply Gaussian kernel
+            for k in -(radius as i32)..=(radius as i32) {
+                let sx = (x as i32 + k).clamp(0, src.width as i32 - 1) as usize;
+                let idx = (y * src.width + sx) * src.channels;
+                let weight = kernel[(k + radius as i32) as usize];
+                
+                r_sum += src.data[idx] as f64 * weight;
+                g_sum += src.data[idx + 1] as f64 * weight;
+                b_sum += src.data[idx + 2] as f64 * weight;
+                a_sum += src.data[idx + 3] as f64 * weight;
+            }
+            
+            // Write result
+            let dst_idx = x * src.channels;
+            row_data[dst_idx] = r_sum.round() as u8;
+            row_data[dst_idx + 1] = g_sum.round() as u8;
+            row_data[dst_idx + 2] = b_sum.round() as u8;
+            row_data[dst_idx + 3] = a_sum.round() as u8;
+        }
+        
+        local_rows.push((y, row_data));
+    }
+    
+    // Write all rows at once
+    let mut dst = dst.lock().unwrap();
+    for (y, row_data) in local_rows {
+        let row_start = y * src.width * src.channels;
+        dst.data[row_start..row_start + src.width * src.channels].copy_from_slice(&row_data);
+    }
+}
+
+fn gaussian_blur_threads(img: &DynamicImage, radius: u32, num_threads: usize) -> DynamicImage {
+    let src = ImageData::from_dynamic_image(img);
+    let radius = radius as usize;
+    
+    // Generate Gaussian kernel
+    let kernel = generate_gaussian_kernel(radius);
+    let kernel_arc = Arc::new(kernel);
+    
+    // Phase 1: Horizontal blur
+    let dst_horizontal = Arc::new(Mutex::new(ImageData {
+        data: vec![0; src.data.len()],
+        width: src.width,
+        height: src.height,
+        channels: src.channels,
+    }));
+    
+    let rows_per_thread = src.height / num_threads;
     let src_arc = Arc::new(src);
     
     let handles: Vec<_> = (0..num_threads)
         .map(|thread_id| {
             let src = Arc::clone(&src_arc);
-            let dst = Arc::clone(&dst);
+            let dst = Arc::clone(&dst_horizontal);
+            let kernel = Arc::clone(&kernel_arc);
             
             thread::spawn(move || {
                 let start_y = thread_id * rows_per_thread;
                 let end_y = if thread_id == num_threads - 1 {
-                    height as usize
+                    src.height
                 } else {
                     (thread_id + 1) * rows_per_thread
                 };
                 
-                // Process rows and buffer them locally
-                let mut row_buffer = Vec::new();
-                
-                for y in start_y..end_y {
-                    for x in 0..width {
-                        let mut r_sum = 0u32;
-                        let mut g_sum = 0u32;
-                        let mut b_sum = 0u32;
-                        let mut a_sum = 0u32;
-                        
-                        // Calculate actual bounds to eliminate branch in inner loop
-                        let y_start = (y as i32).saturating_sub(radius as i32).max(0) as u32;
-                        let y_end = ((y as i32) + (radius as i32)).min(height as i32 - 1) as u32;
-                        let x_start = (x as i32).saturating_sub(radius as i32).max(0) as u32;
-                        let x_end = ((x as i32) + (radius as i32)).min(width as i32 - 1) as u32;
-                        
-                        // Pre-calculate count
-                        let count = (y_end - y_start + 1) * (x_end - x_start + 1);
-                        
-                        for ny in y_start..=y_end {
-                            for nx in x_start..=x_end {
-                                let pixel = src.get_pixel(nx, ny);
-                                r_sum += pixel[0] as u32;
-                                g_sum += pixel[1] as u32;
-                                b_sum += pixel[2] as u32;
-                                a_sum += pixel[3] as u32;
-                            }
-                        }
-                        
-                        if count > 0 {
-                            let pixel = Rgba([
-                                (r_sum / count) as u8,
-                                (g_sum / count) as u8,
-                                (b_sum / count) as u8,
-                                (a_sum / count) as u8,
-                            ]);
-                            row_buffer.push((x, y as u32, pixel));
-                        }
-                    }
-                    
-                    // Write the entire row at once
-                    if !row_buffer.is_empty() {
-                        let mut dst = dst.lock().unwrap();
-                        for (x, y, pixel) in &row_buffer {
-                            dst.put_pixel(*x, *y, *pixel);
-                        }
-                        row_buffer.clear();
-                    }
-                }
+                horizontal_gaussian_blur(&src, dst, &kernel, radius, start_y, end_y);
             })
         })
         .collect();
@@ -80,8 +162,55 @@ fn box_blur_threads(img: &DynamicImage, radius: u32, num_threads: usize) -> Dyna
         handle.join().unwrap();
     }
     
-    let result = Arc::try_unwrap(dst).unwrap().into_inner().unwrap();
-    DynamicImage::ImageRgba8(result)
+    // Get horizontal result and transpose
+    let horizontal_result = Arc::try_unwrap(dst_horizontal)
+        .unwrap()
+        .into_inner()
+        .unwrap();
+    let transposed = horizontal_result.transpose();
+    
+    // Phase 2: Vertical blur (horizontal on transposed)
+    let dst_vertical = Arc::new(Mutex::new(ImageData {
+        data: vec![0; transposed.data.len()],
+        width: transposed.width,
+        height: transposed.height,
+        channels: transposed.channels,
+    }));
+    
+    let rows_per_thread = transposed.height / num_threads;
+    let transposed_arc = Arc::new(transposed);
+    
+    let handles: Vec<_> = (0..num_threads)
+        .map(|thread_id| {
+            let src = Arc::clone(&transposed_arc);
+            let dst = Arc::clone(&dst_vertical);
+            let kernel = Arc::clone(&kernel_arc);
+            
+            thread::spawn(move || {
+                let start_y = thread_id * rows_per_thread;
+                let end_y = if thread_id == num_threads - 1 {
+                    src.height
+                } else {
+                    (thread_id + 1) * rows_per_thread
+                };
+                
+                horizontal_gaussian_blur(&src, dst, &kernel, radius, start_y, end_y);
+            })
+        })
+        .collect();
+    
+    for handle in handles {
+        handle.join().unwrap();
+    }
+    
+    // Get vertical result and transpose back
+    let vertical_result = Arc::try_unwrap(dst_vertical)
+        .unwrap()
+        .into_inner()
+        .unwrap();
+    let final_result = vertical_result.transpose();
+    
+    final_result.to_dynamic_image()
 }
 
 fn main() {
@@ -98,18 +227,28 @@ fn main() {
     let num_threads = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(4);
     
     println!("Loading image: {}", input_path);
+    let load_start = std::time::Instant::now();
     let img = image::open(input_path).expect("Failed to open image");
+    let load_duration = load_start.elapsed();
+    println!("Image loaded in {:?}", load_duration);
     
-    println!("Applying box blur with radius {} using {} threads...", radius, num_threads);
-    let start = std::time::Instant::now();
+    let (width, height) = img.dimensions();
+    println!("Image size: {}x{}", width, height);
+    println!("Applying Gaussian blur with radius {} using {} threads...", radius, num_threads);
+    let blur_start = std::time::Instant::now();
     
-    let blurred = box_blur_threads(&img, radius, num_threads);
+    let blurred = gaussian_blur_threads(&img, radius, num_threads);
     
-    let duration = start.elapsed();
-    println!("Blur completed in {:?}", duration);
+    let blur_duration = blur_start.elapsed();
+    println!("Blur processing completed in {:?} (includes transpose operations)", blur_duration);
     
     println!("Saving to: {}", output_path);
+    let save_start = std::time::Instant::now();
     blurred.save(output_path).expect("Failed to save image");
+    let save_duration = save_start.elapsed();
+    println!("Image saved in {:?}", save_duration);
     
+    let total_duration = load_start.elapsed();
+    println!("Total time: {:?}", total_duration);
     println!("Done!");
 }

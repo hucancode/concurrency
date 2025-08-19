@@ -1,6 +1,6 @@
-# Modern Concurrency Comparison: Image Blur Implementations
+# Concurrency Performance Comparison
 
-This project compares different concurrency models across Go, Rust, and Odin by implementing a CPU-intensive box blur algorithm for images. *My experience level for each language is different and may influence the result*
+This project compares different concurrency models across Go, Rust, and Odin by implementing a CPU-intensive Gaussian blur algorithm for images. *My experience level for each language is different and may influence the result*
 
 - I will try to get this up to date with modern implementation for each language I know.
 - I will not try to make the fastest program. I want to see if I were to put in reasonable effort for each language of choice to make a meaningful program, how fast should I expect it to run.
@@ -22,15 +22,20 @@ And produce this out
 
 ## Algorithm
 
-All implementations use the same box blur algorithm:
+All implementations use the same Gaussian blur algorithm:
 - Divides the image into horizontal strips
 - Distributes strips to workers/threads/tasks
 - Each worker processes pixels independently
 - Results are collected into the output image
 
-Some optimization has been made:
+### Optimizations Applied
+
+- **Gaussian kernel**: Pre-computed weighted kernel based on Gaussian distribution for better image quality
+- **Separable filter**: Split 2D Gaussian blur into two 1D passes (horizontal then vertical)
+- **Image transpose**: Transpose data between passes for cache-friendly memory access patterns
 - **Row buffering**: Process entire rows before writing to minimize lock contention
 - **Pre-assigned work**: Avoid work-stealing patterns that cause contention
+- **SIMD vectorization (Odin)**: Process 8 pixels at once using `#simd[8]f32` vectors
 
 ## Running
 
@@ -49,46 +54,64 @@ INPUT_IMAGE=large.jpg WORKERS=16 make bench
 
 ## Benchmark Results
 
-Benchmarks performed on `input.png` (500x500) with radius 5.
+Benchmarks performed on `wave.png` (3000x1688) with radius 5. All times include image loading and saving.
 
-### Key Observations
-
-Performance with different worker counts:
+### Performance with different worker counts:
 
 | Implementation | 1 Worker | 4 Workers | 16 Workers | 64 Workers | 128 Workers | Best Performance |
 |---------------|----------|-----------|------------|------------|-------------|------------------|
-| **Go** | 357.7 ms | 114.2 ms | 86.1 ms | 109.3 ms | 148.9 ms | 16 workers |
-| **Rust threads** | 36.1 ms | 12.0 ms | 8.2 ms | 11.2 ms | 14.6 ms | 16 threads |
-| **Rust async** | 41.9 ms | 13.0 ms | 9.5 ms | 12.8 ms | 16.0 ms | 16 tasks |
-| **Odin** | 13.4 ms | 20.0 ms | 18.4 ms | 19.2 ms | 22.6 ms | 1 thread (!) |
+| **Go** | 1404 ms | 1364 ms | 1375 ms | 1377 ms | 1376 ms | 4 workers |
+| **Rust threads** | 163 ms | 141 ms | 139 ms | 139 ms | 140 ms | 16-64 threads |
+| **Rust async** | 163 ms | 141 ms | 138 ms | 137 ms | 137 ms | 64-128 tasks |
+| **Odin (SIMD)** | 361 ms | 755 ms | 751 ms | 751 ms | - | 1 thread (!) |
 
-| Implementation | 1→4 Speedup | 4→16 Speedup | 16→64 Change | 64→128 Change | Optimal Thread Count |
-|---------------|-------------|--------------|--------------|---------------|---------------------|
-| **Go** | 3.13x | 1.33x | 0.79x (worse) | 0.73x (worse) | 16 |
-| **Rust threads** | 3.01x | 1.46x | 0.73x (worse) | 0.77x (worse) | 16 |
-| **Rust async** | 3.22x | 1.37x | 0.74x (worse) | 0.80x (worse) | 16 |
-| **Odin** | 0.67x (worse) | 1.09x | 0.96x (worse) | 0.85x (worse) | 1 |
+### Head-to-head Comparison at 16 workers
 
-| Implementation | Threads/Workers | Mean Time | Relative Speed |
-|----------------|----------------|-----------|----------------|
-| **Rust threads** | 16 threads | 8.2 ms | 1.00x (fastest) |
-| **Rust async** | 16 tasks | 9.5 ms | 1.16x slower |
-| **Odin** | 1 thread | 13.4 ms | 1.63x slower |
-| **Go** | 16 workers | 86.1 ms | 10.5x slower |
+Benchmark command:
+```bash
+make bench INPUT_IMAGE=wave.png WORKERS=16
+```
 
-#### Rust threads
-Best overall performance at 16 threads (8.2 ms). Excellent scaling from 1→16 threads (4.4x speedup), but degrades at 64 threads and further at 128 threads due to oversaturation and context switching overhead.
+| Implementation | Time | Relative Speed |
+|----------------|------|----------------|
+| **Rust async** | 136 ms | 1.00x (fastest) |
+| **Rust threads** | 137 ms | 1.01x slower |
+| **Odin (SIMD)** | 751 ms | 5.52x slower |
+| **Go** | 1350 ms | 9.92x slower |
+
+### Timing Breakdown (16 workers on wave.png)
+
+Breaking down where time is spent in each implementation:
+
+| Implementation | Image Load | Blur Processing | Image Save | Total | Processing % |
+|----------------|------------|-----------------|------------|-------|--------------|
+| **Go** | 166 ms | 136 ms | 1016 ms | 1318 ms | 10.3% |
+| **Rust threads** | 63 ms | 45 ms | 39 ms | 147 ms | 30.6% |
+| **Rust async** | 64 ms | 43 ms | 39 ms | 146 ms | 29.5% |
+| **Odin (SIMD)** | 148 ms | 37 ms | 582 ms | 767 ms | 4.8% |
+
+- Go spends 90% of its time on I/O (especially saving - 1016 ms!)
+- Rust implementations have the most balanced profile (30% processing, 70% I/O)
+- Odin with proper SIMD has the fastest blur processing (37 ms) but terrible I/O performance (730 ms total)
+- All implementations use the same Gaussian blur algorithm, but Rust has the best overall balance
+
+### Key Observations
 
 #### Rust async (Tokio)
-Close second at 16 tasks (9.5 ms). Similar scaling pattern to threads but with slightly more overhead from the async runtime. Performance degrades beyond 16 tasks.
+Best overall performance (137 ms at 64-128 tasks). Excellent scaling from 1 to 16 workers, then plateaus with stable performance. The async runtime handles the large image efficiently.
 
-#### Odin
-Fastest single-threaded performance (13.4 ms) but gets **slower** with more threads, likely because implementation issue
+#### Rust threads
+Nearly identical to async (139 ms at 16-64 threads). Shows good scaling up to 16 threads, demonstrating effective parallelization of the sliding window algorithm.
+
+#### Odin (with SIMD)
+Single-threaded performance (361 ms) is still best. Adding threads makes it over 2x slower (751-755 ms), indicating severe threading overhead or contention issues. The properly implemented SIMD achieves the fastest pure blur processing (37 ms) of all implementations, but poor I/O performance and threading issues prevent it from competing overall.
 
 #### Go
-Highest overhead but good scaling (4.15x speedup from 1→16). Performance significantly degrades at 128 workers (148.9 ms), likely because channels and goroutine scheduling overhead
+Consistent but slow performance (1350-1404 ms). The Go implementation shows minimal benefit from additional workers, suggesting that the goroutine overhead dominates the computation for this image size.
 
 ## And The Winner Is
 
-- **Best performance**: Rust threads at 16 threads (8.2 ms)
-- **Best single-threaded**: Odin (13.4 ms)
+- **Best overall**: Rust async at 64-128 tasks (137 ms total, 43 ms processing)
+- **Close second**: Rust threads at 16-64 threads (139 ms total, 45 ms processing)
+- **Fastest processing**: Odin SIMD at 37 ms (but 767 ms total due to poor I/O)
+- **Odin observation**: Despite having the fastest blur algorithm with SIMD, threading issues prevent scaling

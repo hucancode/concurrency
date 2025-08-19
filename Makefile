@@ -21,15 +21,13 @@ go:
 rust:
 	@echo "Building Rust threads implementation..."
 	cd rust && cargo build --release
-	@cp rust/target/release/rust_blur rust/blur_rust
-	@echo "Rust binary built: rust/blur_rust"
+	@echo "Rust binary built: rust/target/release/rust_blur"
 
 # Rust async - build release mode
 rust-async:
 	@echo "Building Rust async implementation..."
 	cd rust_async && cargo build --release
-	@cp rust_async/target/release/rust_blur_async rust_async/blur_rust_async
-	@echo "Rust async binary built: rust_async/blur_rust_async"
+	@echo "Rust async binary built: rust_async/target/release/rust_blur_async"
 
 # Odin - build with optimizations
 odin:
@@ -41,8 +39,6 @@ odin:
 clean:
 	@echo "Cleaning built binaries..."
 	@rm -f go/blur_go
-	@rm -f rust/blur_rust
-	@rm -f rust_async/blur_rust_async
 	@rm -f odin/blur_odin
 	@rm -f $(OUTPUT_IMAGE)
 	@cd rust && cargo clean
@@ -62,20 +58,20 @@ bench-go: go
 bench-rust: rust
 	@echo "Benchmarking Rust threads implementation..."
 	hyperfine --warmup 3 --runs 10 \
-		"./rust/blur_rust $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 1" \
-		"./rust/blur_rust $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 4" \
-		"./rust/blur_rust $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 16" \
-		"./rust/blur_rust $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
-		"./rust/blur_rust $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
+		"./rust/target/release/rust_blur $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 1" \
+		"./rust/target/release/rust_blur $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 4" \
+		"./rust/target/release/rust_blur $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 16" \
+		"./rust/target/release/rust_blur $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
+		"./rust/target/release/rust_blur $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
 
 bench-rust-async: rust-async
 	@echo "Benchmarking Rust async implementation..."
 	hyperfine --warmup 3 --runs 10 \
-		"./rust_async/blur_rust_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 1" \
-		"./rust_async/blur_rust_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 4" \
-		"./rust_async/blur_rust_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 16" \
-		"./rust_async/blur_rust_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
-		"./rust_async/blur_rust_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
+		"./rust_async/target/release/rust_blur_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 1" \
+		"./rust_async/target/release/rust_blur_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 4" \
+		"./rust_async/target/release/rust_blur_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 16" \
+		"./rust_async/target/release/rust_blur_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
+		"./rust_async/target/release/rust_blur_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
 
 bench-odin: odin
 	@echo "Benchmarking Odin implementation..."
@@ -91,8 +87,8 @@ bench: all
 	@echo "Benchmarking all implementations..."
 	hyperfine --warmup 3 --runs 10 \
 		-n "Go ($(WORKERS) workers)" "./go/blur_go $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
-		-n "Rust threads ($(WORKERS) threads)" "./rust/blur_rust $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
-		-n "Rust async ($(WORKERS) tasks)" "./rust_async/blur_rust_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
+		-n "Rust threads ($(WORKERS) threads)" "./rust/target/release/rust_blur $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
+		-n "Rust async ($(WORKERS) tasks)" "./rust_async/target/release/rust_blur_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
 		-n "Odin ($(WORKERS) threads)" "./odin/blur_odin $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)"
 
 # Help target
