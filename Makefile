@@ -7,9 +7,9 @@ RADIUS ?= 5
 WORKERS ?= 64
 
 # Build targets
-.PHONY: all clean go rust rust-async odin bench-go bench-rust bench-rust-async bench-odin bench
+.PHONY: all clean go rust rust-async odin zig bench-go bench-rust bench-rust-async bench-odin bench-zig bench
 
-all: go rust rust-async odin
+all: go rust rust-async odin zig
 
 # Go - build with optimizations
 go:
@@ -35,12 +35,20 @@ odin:
 	cd odin && odin build . -out:blur_odin -o:aggressive -no-bounds-check
 	@echo "Odin binary built: odin/blur_odin"
 
+# Zig - build with optimizations
+zig:
+	@echo "Building Zig implementation..."
+	cd zig && zig build -Doptimize=ReleaseFast
+	@echo "Zig binary built: zig/zig-out/bin/blur_zig"
+
 # Clean all built binaries
 clean:
 	@echo "Cleaning built binaries..."
 	@rm -f go/blur_go
 	@rm -f odin/blur_odin
 	@rm -f $(OUTPUT_IMAGE)
+	@rm -rf zig/zig-out
+	@rm -rf zig/.zig-cache
 	@cd rust && cargo clean
 	@cd rust_async && cargo clean
 	@echo "Clean complete"
@@ -82,6 +90,15 @@ bench-odin: odin
 		"./odin/blur_odin $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
 		"./odin/blur_odin $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
 
+bench-zig: zig
+	@echo "Benchmarking Zig implementation..."
+	hyperfine --warmup 3 --runs 10 \
+		"./zig/zig-out/bin/blur_zig $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 1" \
+		"./zig/zig-out/bin/blur_zig $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 4" \
+		"./zig/zig-out/bin/blur_zig $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 16" \
+		"./zig/zig-out/bin/blur_zig $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
+		"./zig/zig-out/bin/blur_zig $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
+
 # Compare all implementations
 bench: all
 	@echo "Benchmarking all implementations..."
@@ -89,7 +106,8 @@ bench: all
 		-n "Go ($(WORKERS) workers)" "./go/blur_go $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
 		-n "Rust threads ($(WORKERS) threads)" "./rust/target/release/rust_blur $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
 		-n "Rust async ($(WORKERS) tasks)" "./rust_async/target/release/rust_blur_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
-		-n "Odin ($(WORKERS) threads)" "./odin/blur_odin $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)"
+		-n "Odin ($(WORKERS) threads)" "./odin/blur_odin $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
+		-n "Zig ($(WORKERS) threads)" "./zig/zig-out/bin/blur_zig $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)"
 
 # Help target
 help:
@@ -101,6 +119,7 @@ help:
 	@echo "  make bench-rust       - Benchmark Rust threads with different worker counts"
 	@echo "  make bench-rust-async - Benchmark Rust async with different worker counts"
 	@echo "  make bench-odin       - Benchmark Odin with different worker counts"
+	@echo "  make bench-zig        - Benchmark Zig with different worker counts"
 	@echo "  make bench            - Compare all implementations"
 	@echo ""
 	@echo "Environment variables:"
