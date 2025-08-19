@@ -28,7 +28,6 @@ All implementations use the same Gaussian blur algorithm:
 
 ### Optimizations Applied
 
-- **Gaussian kernel**: Pre-computed weighted kernel based on Gaussian distribution for better image quality
 - **Separable filter**: Split 2D Gaussian blur into two 1D passes (horizontal then vertical)
 - **Image transpose**: Transpose data between passes for cache-friendly memory access patterns
 - **Row buffering**: Process entire rows before writing to minimize lock contention
@@ -59,15 +58,15 @@ Benchmarks performed on `wave.png` (3000x1688) with radius 5.
 | Implementation | 1 Worker | 4 Workers | 16 Workers | 64 Workers | 128 Workers | Best Performance |
 |---------------|----------|-----------|------------|------------|-------------|------------------|
 | **Go** | 466 ms | 233 ms | 193 ms | 200 ms | 188 ms | 188 ms @ 128 workers |
-| **Rust threads** | 328 ms | 106 ms | 67 ms | 58 ms | 68 ms | 58 ms @ 64 threads |
-| **Rust async** | 308 ms | 111 ms | 69 ms | 64 ms | 66 ms | 64 ms @ 64 tasks |
-| **Odin** | 263 ms | 91 ms | 63 ms | 59 ms | 59 ms | 59 ms @ 64-128 threads |
+| **Rust threads** | 328 ms | 106 ms | 67 ms | 58 ms | 68 ms | 58 ms @ 64 workers |
+| **Rust async** | 308 ms | 111 ms | 69 ms | 64 ms | 66 ms | 64 ms @ 64 workers |
+| **Odin** | 263 ms | 91 ms | 63 ms | 59 ms | 59 ms | 59 ms @ 64-128 workers |
 
 ### Total Time (including image load/save):
 
 | Implementation | 4 Workers | 64 Workers | Relative to Best |
 |----------------|-----------|------------|------------------|
-| **Rust threads** | 190 ms | **145 ms** | 1.00x (fastest) |
+| **Rust threads** | 190 ms | **145 ms** | 1.00x |
 | **Rust async** | 196 ms | 147 ms | 1.01x slower |
 | **Odin** | 805 ms | 774 ms | 5.34x slower |
 | **Go** | 1642 ms | 1592 ms | 10.99x slower |
