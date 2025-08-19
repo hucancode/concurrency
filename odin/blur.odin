@@ -30,37 +30,38 @@ box_blur_worker :: proc(ctx: ^WorkerContext) {
     for y := ctx.start_y; y < ctx.end_y; y += 1 {
         for x := 0; x < ctx.src.width; x += 1 {
             r_sum, g_sum, b_sum, a_sum: u32 = 0, 0, 0, 0
-            count: u32 = 0
             
-            for dy := -ctx.radius; dy <= ctx.radius; dy += 1 {
-                for dx := -ctx.radius; dx <= ctx.radius; dx += 1 {
-                    nx := x + dx
-                    ny := y + dy
-                    
-                    if nx >= 0 && nx < ctx.src.width && ny >= 0 && ny < ctx.src.height {
-                        src_idx := (ny * ctx.src.width + nx) * ctx.src.channels
-                        r_sum += u32(ctx.src.data[src_idx])
-                        g_sum += u32(ctx.src.data[src_idx + 1])
-                        b_sum += u32(ctx.src.data[src_idx + 2])
-                        if ctx.src.channels == 4 {
-                            a_sum += u32(ctx.src.data[src_idx + 3])
-                        } else {
-                            a_sum += 255
-                        }
-                        count += 1
+            // Calculate actual bounds to eliminate branch in inner loop
+            y_start := max(0, y - ctx.radius)
+            y_end := min(ctx.src.height - 1, y + ctx.radius)
+            x_start := max(0, x - ctx.radius)
+            x_end := min(ctx.src.width - 1, x + ctx.radius)
+            
+            // Pre-calculate count
+            count := u32((y_end - y_start + 1) * (x_end - x_start + 1))
+            
+            // Now we can iterate without boundary checks
+            for ny := y_start; ny <= y_end; ny += 1 {
+                for nx := x_start; nx <= x_end; nx += 1 {
+                    src_idx := (ny * ctx.src.width + nx) * ctx.src.channels
+                    r_sum += u32(ctx.src.data[src_idx])
+                    g_sum += u32(ctx.src.data[src_idx + 1])
+                    b_sum += u32(ctx.src.data[src_idx + 2])
+                    if ctx.src.channels == 4 {
+                        a_sum += u32(ctx.src.data[src_idx + 3])
+                    } else {
+                        a_sum += 255
                     }
                 }
             }
             
-            if count > 0 {
-                // Write directly to destination - no mutex needed as regions don't overlap
-                dst_idx := (y * ctx.dst.width + x) * ctx.dst.channels
-                ctx.dst.data[dst_idx] = u8(r_sum / count)
-                ctx.dst.data[dst_idx + 1] = u8(g_sum / count)
-                ctx.dst.data[dst_idx + 2] = u8(b_sum / count)
-                if ctx.dst.channels == 4 {
-                    ctx.dst.data[dst_idx + 3] = u8(a_sum / count)
-                }
+            // Write directly to destination - no mutex needed as regions don't overlap
+            dst_idx := (y * ctx.dst.width + x) * ctx.dst.channels
+            ctx.dst.data[dst_idx] = u8(r_sum / count)
+            ctx.dst.data[dst_idx + 1] = u8(g_sum / count)
+            ctx.dst.data[dst_idx + 2] = u8(b_sum / count)
+            if ctx.dst.channels == 4 {
+                ctx.dst.data[dst_idx + 3] = u8(a_sum / count)
             }
         }
     }

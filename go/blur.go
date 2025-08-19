@@ -95,6 +95,7 @@ func processRegion(src image.Image, startY, endY, radius, kernelArea int, result
 	maxX := bounds.Max.X
 	maxY := bounds.Max.Y
 	width := maxX - minX
+	height := maxY - minY
 	
 	for y := startY; y < endY; y++ {
 		// Process entire row into buffer
@@ -102,38 +103,34 @@ func processRegion(src image.Image, startY, endY, radius, kernelArea int, result
 		
 		for x := 0; x < width; x++ {
 			var rSum, gSum, bSum, aSum uint32
-			validPixels := 0
 			
-			// Apply kernel
-			for ky := -radius; ky <= radius; ky++ {
-				for kx := -radius; kx <= radius; kx++ {
-					// Calculate source coordinates with bounds checking
-					srcX := x + kx + minX
-					srcY := y + ky + minY
-					
-					// Skip out-of-bounds pixels
-					if srcX < minX || srcX >= maxX || srcY < minY || srcY >= maxY {
-						continue
-					}
-					
-					// Accumulate pixel values
-					r, g, b, a := src.At(srcX, srcY).RGBA()
+			// Calculate actual bounds to eliminate branch in inner loop
+			yStart := max(0, y-radius)
+			yEnd := min(height-1, y+radius)
+			xStart := max(0, x-radius)
+			xEnd := min(width-1, x+radius)
+			
+			// Pre-calculate pixel count
+			validPixels := uint32((yEnd - yStart + 1) * (xEnd - xStart + 1))
+			
+			// Now we can iterate without boundary checks
+			for ky := yStart; ky <= yEnd; ky++ {
+				for kx := xStart; kx <= xEnd; kx++ {
+					// Accumulate pixel values - no bounds check needed
+					r, g, b, a := src.At(kx+minX, ky+minY).RGBA()
 					rSum += r
 					gSum += g
 					bSum += b
 					aSum += a
-					validPixels++
 				}
 			}
 			
 			// Average the accumulated values
-			if validPixels > 0 {
-				rowPixels[x] = color.RGBA{
-					R: uint8(rSum / uint32(validPixels) >> 8),
-					G: uint8(gSum / uint32(validPixels) >> 8),
-					B: uint8(bSum / uint32(validPixels) >> 8),
-					A: uint8(aSum / uint32(validPixels) >> 8),
-				}
+			rowPixels[x] = color.RGBA{
+				R: uint8(rSum / validPixels >> 8),
+				G: uint8(gSum / validPixels >> 8),
+				B: uint8(bSum / validPixels >> 8),
+				A: uint8(aSum / validPixels >> 8),
 			}
 		}
 		

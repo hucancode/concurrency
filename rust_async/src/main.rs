@@ -32,21 +32,23 @@ async fn box_blur_async(img: &DynamicImage, radius: u32, num_tasks: usize) -> Dy
                     let mut g_sum = 0u32;
                     let mut b_sum = 0u32;
                     let mut a_sum = 0u32;
-                    let mut count = 0u32;
                     
-                    for dy in -(radius as i32)..=(radius as i32) {
-                        for dx in -(radius as i32)..=(radius as i32) {
-                            let nx = x as i32 + dx;
-                            let ny = y as i32 + dy;
-                            
-                            if nx >= 0 && nx < width as i32 && ny >= 0 && ny < height as i32 {
-                                let pixel = src.get_pixel(nx as u32, ny as u32);
-                                r_sum += pixel[0] as u32;
-                                g_sum += pixel[1] as u32;
-                                b_sum += pixel[2] as u32;
-                                a_sum += pixel[3] as u32;
-                                count += 1;
-                            }
+                    // Calculate actual bounds to eliminate branch in inner loop
+                    let y_start = (y as i32).saturating_sub(radius as i32).max(0) as u32;
+                    let y_end = ((y as i32) + (radius as i32)).min(height as i32 - 1) as u32;
+                    let x_start = (x as i32).saturating_sub(radius as i32).max(0) as u32;
+                    let x_end = ((x as i32) + (radius as i32)).min(width as i32 - 1) as u32;
+                    
+                    // Pre-calculate count
+                    let count = (y_end - y_start + 1) * (x_end - x_start + 1);
+                    
+                    for ny in y_start..=y_end {
+                        for nx in x_start..=x_end {
+                            let pixel = src.get_pixel(nx, ny);
+                            r_sum += pixel[0] as u32;
+                            g_sum += pixel[1] as u32;
+                            b_sum += pixel[2] as u32;
+                            a_sum += pixel[3] as u32;
                         }
                     }
                     
