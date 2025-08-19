@@ -16,67 +16,50 @@ Image :: struct {
     channels: int,
 }
 
-WorkUnit :: struct {
+WorkerContext :: struct {
+    src: ^Image,
+    dst: ^Image,
+    radius: int,
     start_y: int,
     end_y: int,
 }
 
-BlurContext :: struct {
-    src: ^Image,
-    dst: ^Image,
-    radius: int,
-    work_units: []WorkUnit,
-    current_unit: int,
-    mutex: sync.Mutex,
-}
-
-box_blur_worker :: proc(ctx: ^BlurContext) {
-    
-    for {
-        // Get next work unit
-        sync.mutex_lock(&ctx.mutex)
-        if ctx.current_unit >= len(ctx.work_units) {
-            sync.mutex_unlock(&ctx.mutex)
-            break
-        }
-        unit := ctx.work_units[ctx.current_unit]
-        ctx.current_unit += 1
-        sync.mutex_unlock(&ctx.mutex)
-        
-        // Process the work unit
-        for y := unit.start_y; y < unit.end_y; y += 1 {
-            for x := 0; x < ctx.src.width; x += 1 {
-                r_sum, g_sum, b_sum, a_sum: u32 = 0, 0, 0, 0
-                count: u32 = 0
-                
-                for dy := -ctx.radius; dy <= ctx.radius; dy += 1 {
-                    for dx := -ctx.radius; dx <= ctx.radius; dx += 1 {
-                        nx := x + dx
-                        ny := y + dy
-                        
-                        if nx >= 0 && nx < ctx.src.width && ny >= 0 && ny < ctx.src.height {
-                            src_idx := (ny * ctx.src.width + nx) * ctx.src.channels
-                            r_sum += u32(ctx.src.data[src_idx])
-                            g_sum += u32(ctx.src.data[src_idx + 1])
-                            b_sum += u32(ctx.src.data[src_idx + 2])
-                            if ctx.src.channels == 4 {
-                                a_sum += u32(ctx.src.data[src_idx + 3])
-                            } else {
-                                a_sum += 255
-                            }
-                            count += 1
+box_blur_worker :: proc(ctx: ^WorkerContext) {
+    // Process the assigned region directly without mutex
+    // Each thread writes to its own region, no overlap
+    for y := ctx.start_y; y < ctx.end_y; y += 1 {
+        for x := 0; x < ctx.src.width; x += 1 {
+            r_sum, g_sum, b_sum, a_sum: u32 = 0, 0, 0, 0
+            count: u32 = 0
+            
+            for dy := -ctx.radius; dy <= ctx.radius; dy += 1 {
+                for dx := -ctx.radius; dx <= ctx.radius; dx += 1 {
+                    nx := x + dx
+                    ny := y + dy
+                    
+                    if nx >= 0 && nx < ctx.src.width && ny >= 0 && ny < ctx.src.height {
+                        src_idx := (ny * ctx.src.width + nx) * ctx.src.channels
+                        r_sum += u32(ctx.src.data[src_idx])
+                        g_sum += u32(ctx.src.data[src_idx + 1])
+                        b_sum += u32(ctx.src.data[src_idx + 2])
+                        if ctx.src.channels == 4 {
+                            a_sum += u32(ctx.src.data[src_idx + 3])
+                        } else {
+                            a_sum += 255
                         }
+                        count += 1
                     }
                 }
-                
-                if count > 0 {
-                    dst_idx := (y * ctx.dst.width + x) * ctx.dst.channels
-                    ctx.dst.data[dst_idx] = u8(r_sum / count)
-                    ctx.dst.data[dst_idx + 1] = u8(g_sum / count)
-                    ctx.dst.data[dst_idx + 2] = u8(b_sum / count)
-                    if ctx.dst.channels == 4 {
-                        ctx.dst.data[dst_idx + 3] = u8(a_sum / count)
-                    }
+            }
+            
+            if count > 0 {
+                // Write directly to destination - no mutex needed as regions don't overlap
+                dst_idx := (y * ctx.dst.width + x) * ctx.dst.channels
+                ctx.dst.data[dst_idx] = u8(r_sum / count)
+                ctx.dst.data[dst_idx + 1] = u8(g_sum / count)
+                ctx.dst.data[dst_idx + 2] = u8(b_sum / count)
+                if ctx.dst.channels == 4 {
+                    ctx.dst.data[dst_idx + 3] = u8(a_sum / count)
                 }
             }
         }
@@ -91,33 +74,27 @@ box_blur_threads :: proc(src: ^Image, radius: int, num_threads: int) -> Image {
         channels = src.channels,
     }
     
-    // Create work units
+    // Pre-calculate work distribution
     rows_per_thread := src.height / num_threads
-    work_units := make([]WorkUnit, num_threads)
+    
+    // Create worker contexts with pre-assigned regions
+    contexts := make([]WorkerContext, num_threads)
     for i := 0; i < num_threads; i += 1 {
-        work_units[i].start_y = i * rows_per_thread
-        if i == num_threads - 1 {
-            work_units[i].end_y = src.height
-        } else {
-            work_units[i].end_y = (i + 1) * rows_per_thread
+        contexts[i] = WorkerContext{
+            src = src,
+            dst = &dst,
+            radius = radius,
+            start_y = i * rows_per_thread,
+            end_y = (i == num_threads - 1) ? src.height : (i + 1) * rows_per_thread,
         }
     }
     
-    ctx := BlurContext{
-        src = src,
-        dst = &dst,
-        radius = radius,
-        work_units = work_units,
-        current_unit = 0,
-    }
-    // Mutex is zero-initialized by default
-    
-    // Create and start threads
+    // Create and start threads with their assigned work
     threads := make([dynamic]^thread.Thread, 0, num_threads)
     defer delete(threads)
     
     for i := 0; i < num_threads; i += 1 {
-        t := thread.create_and_start_with_poly_data(&ctx, box_blur_worker)
+        t := thread.create_and_start_with_poly_data(&contexts[i], box_blur_worker)
         append(&threads, t)
     }
     
@@ -127,7 +104,7 @@ box_blur_threads :: proc(src: ^Image, radius: int, num_threads: int) -> Image {
         free(t)
     }
     
-    delete(work_units)
+    delete(contexts)
     
     return dst
 }

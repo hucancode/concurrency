@@ -23,6 +23,9 @@ fn box_blur_threads(img: &DynamicImage, radius: u32, num_threads: usize) -> Dyna
                     (thread_id + 1) * rows_per_thread
                 };
                 
+                // Process rows and buffer them locally
+                let mut row_buffer = Vec::new();
+                
                 for y in start_y..end_y {
                     for x in 0..width {
                         let mut r_sum = 0u32;
@@ -54,10 +57,17 @@ fn box_blur_threads(img: &DynamicImage, radius: u32, num_threads: usize) -> Dyna
                                 (b_sum / count) as u8,
                                 (a_sum / count) as u8,
                             ]);
-                            
-                            let mut dst = dst.lock().unwrap();
-                            dst.put_pixel(x, y as u32, pixel);
+                            row_buffer.push((x, y as u32, pixel));
                         }
+                    }
+                    
+                    // Write the entire row at once
+                    if !row_buffer.is_empty() {
+                        let mut dst = dst.lock().unwrap();
+                        for (x, y, pixel) in &row_buffer {
+                            dst.put_pixel(*x, *y, *pixel);
+                        }
+                        row_buffer.clear();
                     }
                 }
             })

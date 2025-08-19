@@ -4,7 +4,7 @@
 INPUT_IMAGE ?= input.png
 OUTPUT_IMAGE ?= output.png
 RADIUS ?= 5
-WORKERS ?= 8
+WORKERS ?= 64
 
 # Build targets
 .PHONY: all clean go rust rust-async odin bench-go bench-rust bench-rust-async bench-odin bench
@@ -54,33 +54,37 @@ bench-go: go
 	@echo "Benchmarking Go implementation..."
 	hyperfine --warmup 3 --runs 10 \
 		"./go/blur_go $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 1" \
-		"./go/blur_go $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 2" \
 		"./go/blur_go $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 4" \
-		"./go/blur_go $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 8"
+		"./go/blur_go $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 16" \
+		"./go/blur_go $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
+		"./go/blur_go $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
 
 bench-rust: rust
 	@echo "Benchmarking Rust threads implementation..."
 	hyperfine --warmup 3 --runs 10 \
 		"./rust/blur_rust $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 1" \
-		"./rust/blur_rust $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 2" \
 		"./rust/blur_rust $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 4" \
-		"./rust/blur_rust $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 8"
+		"./rust/blur_rust $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 16" \
+		"./rust/blur_rust $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
+		"./rust/blur_rust $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
 
 bench-rust-async: rust-async
 	@echo "Benchmarking Rust async implementation..."
 	hyperfine --warmup 3 --runs 10 \
 		"./rust_async/blur_rust_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 1" \
-		"./rust_async/blur_rust_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 2" \
 		"./rust_async/blur_rust_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 4" \
-		"./rust_async/blur_rust_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 8"
+		"./rust_async/blur_rust_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 16" \
+		"./rust_async/blur_rust_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
+		"./rust_async/blur_rust_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
 
 bench-odin: odin
 	@echo "Benchmarking Odin implementation..."
 	hyperfine --warmup 3 --runs 10 \
 		"./odin/blur_odin $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 1" \
-		"./odin/blur_odin $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 2" \
 		"./odin/blur_odin $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 4" \
-		"./odin/blur_odin $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 8"
+		"./odin/blur_odin $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 16" \
+		"./odin/blur_odin $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
+		"./odin/blur_odin $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
 
 # Compare all implementations
 bench: all
@@ -107,7 +111,7 @@ help:
 	@echo "  INPUT_IMAGE  - Input image file (default: input.png)"
 	@echo "  OUTPUT_IMAGE - Output image file (default: output.png)"
 	@echo "  RADIUS       - Blur radius (default: 5)"
-	@echo "  WORKERS      - Number of workers/threads (default: 8)"
+	@echo "  WORKERS      - Number of workers/threads (default: 64)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  INPUT_IMAGE=photo.jpg; make bench"

@@ -22,77 +22,100 @@ type WorkUnit struct {
 	endY   int
 }
 
+// RowData represents processed pixel data for a row
+type RowData struct {
+	y      int
+	pixels []color.RGBA
+}
+
 // boxBlur applies a box blur filter to an image using goroutines and channels
 func boxBlur(src image.Image, radius int, workers int) image.Image {
 	bounds := src.Bounds()
 	width := bounds.Max.X - bounds.Min.X
 	height := bounds.Max.Y - bounds.Min.Y
-
+	
 	// Create output image
 	dst := image.NewRGBA(image.Rect(0, 0, width, height))
-
-	// Create work channel and result sync
+	
+	// Create work channel and result channel
 	workChan := make(chan WorkUnit, workers)
+	resultChan := make(chan RowData, height)
 	var wg sync.WaitGroup
-
-	// Calculate kernel size and normalization factor
+	
+	// Calculate kernel size
 	kernelSize := 2*radius + 1
 	kernelArea := kernelSize * kernelSize
-
+	
 	// Start worker goroutines
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for work := range workChan {
-				processRegion(src, dst, work.startY, work.endY, radius, kernelArea)
+				processRegion(src, work.startY, work.endY, radius, kernelArea, resultChan)
 			}
 		}()
 	}
-
+	
 	// Distribute work
-	rowsPerWorker := height / workers
-	for i := 0; i < workers; i++ {
-		startY := i * rowsPerWorker
-		endY := startY + rowsPerWorker
-		if i == workers-1 {
-			endY = height
+	go func() {
+		rowsPerWorker := height / workers
+		for i := 0; i < workers; i++ {
+			startY := i * rowsPerWorker
+			endY := startY + rowsPerWorker
+			if i == workers-1 {
+				endY = height
+			}
+			workChan <- WorkUnit{startY: startY, endY: endY}
 		}
-		workChan <- WorkUnit{startY: startY, endY: endY}
+		close(workChan)
+	}()
+	
+	// Collector goroutine
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+	
+	// Collect results and write to destination
+	for rowData := range resultChan {
+		for x, pixel := range rowData.pixels {
+			dst.Set(x, rowData.y, pixel)
+		}
 	}
-	close(workChan)
-
-	// Wait for all workers to complete
-	wg.Wait()
-
+	
 	return dst
 }
 
 // processRegion processes a horizontal strip of the image
-func processRegion(src image.Image, dst *image.RGBA, startY, endY, radius, kernelArea int) {
+func processRegion(src image.Image, startY, endY, radius, kernelArea int, resultChan chan<- RowData) {
 	bounds := src.Bounds()
 	minX := bounds.Min.X
 	minY := bounds.Min.Y
 	maxX := bounds.Max.X
 	maxY := bounds.Max.Y
-
+	width := maxX - minX
+	
 	for y := startY; y < endY; y++ {
-		for x := 0; x < maxX-minX; x++ {
+		// Process entire row into buffer
+		rowPixels := make([]color.RGBA, width)
+		
+		for x := 0; x < width; x++ {
 			var rSum, gSum, bSum, aSum uint32
 			validPixels := 0
-
+			
 			// Apply kernel
 			for ky := -radius; ky <= radius; ky++ {
 				for kx := -radius; kx <= radius; kx++ {
 					// Calculate source coordinates with bounds checking
 					srcX := x + kx + minX
 					srcY := y + ky + minY
-
+					
 					// Skip out-of-bounds pixels
 					if srcX < minX || srcX >= maxX || srcY < minY || srcY >= maxY {
 						continue
 					}
-
+					
 					// Accumulate pixel values
 					r, g, b, a := src.At(srcX, srcY).RGBA()
 					rSum += r
@@ -102,17 +125,20 @@ func processRegion(src image.Image, dst *image.RGBA, startY, endY, radius, kerne
 					validPixels++
 				}
 			}
-
+			
 			// Average the accumulated values
 			if validPixels > 0 {
-				dst.Set(x, y, color.RGBA{
+				rowPixels[x] = color.RGBA{
 					R: uint8(rSum / uint32(validPixels) >> 8),
 					G: uint8(gSum / uint32(validPixels) >> 8),
 					B: uint8(bSum / uint32(validPixels) >> 8),
 					A: uint8(aSum / uint32(validPixels) >> 8),
-				})
+				}
 			}
 		}
+		
+		// Send completed row
+		resultChan <- RowData{y: y, pixels: rowPixels}
 	}
 }
 
@@ -123,7 +149,7 @@ func loadImage(path string) (image.Image, error) {
 		return nil, err
 	}
 	defer file.Close()
-
+	
 	// Decode based on file extension
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
@@ -145,7 +171,7 @@ func saveImage(img image.Image, path string) error {
 		return err
 	}
 	defer file.Close()
-
+	
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".jpg", ".jpeg":
