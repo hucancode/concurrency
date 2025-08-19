@@ -70,7 +70,7 @@ transpose_image :: proc(src: ^Image, dst: ^Image) {
     }
 }
 
-// SIMD width - 8 allows processing 8 pixels at once
+// SIMD width - 8 allows processing 2 pixels at once
 SIMD_WIDTH :: 64
 PIXEL_PER_ITER :: SIMD_WIDTH / 4
 
