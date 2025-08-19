@@ -32,7 +32,7 @@ All implementations use the same Gaussian blur algorithm:
 - **Image transpose**: Transpose data between passes for cache-friendly memory access patterns
 - **Row buffering**: Process entire rows before writing to minimize lock contention
 - **Pre-assigned work**: Avoid work-stealing patterns that cause contention
-- **SIMD vectorization (Odin only)**: Process 16 pixels at once using `#simd[16]f32` vectors
+- **SIMD vectorization (Odin only)**: Process 16 pixels at once using `#simd[16]f32` vectors. SIMD is natively supported by Odin and it is easy to write SIMD code in Odin. To my understanding Rust and Go do not have this kind of convenient out of the box. So I will not include SIMD vectorization in Rust and Go implementations.
 
 ## Running
 
@@ -100,4 +100,4 @@ Very similar to threads with 64 ms at 64 tasks. Scales well from 308 ms (1 threa
 
 - **Fastest total time**: Rust threads at 145 ms (including I/O)
 - **Fastest blur processing**: Rust threads at 58 ms, Odin at 59 ms (virtually tied)
-- **I/O bottleneck**: Odin has 715 ms I/O overhead, Go has 1400+ ms I/O overhead. Clearly comes from the different image library implementations.
+- **I/O bottleneck**: Odin has 700+ ms I/O overhead, Go has 1400+ ms I/O overhead. Rust got it better. Clearly comes from the different image library implementations.
