@@ -31,19 +31,19 @@ func generateGaussianKernel(radius int) []float64 {
 	kernel := make([]float64, size)
 	sigma := float64(radius) / 3.0 // Standard deviation
 	sum := 0.0
-	
+
 	// Calculate Gaussian values
 	for i := 0; i < size; i++ {
 		x := float64(i - radius)
 		kernel[i] = math.Exp(-(x*x) / (2.0 * sigma * sigma))
 		sum += kernel[i]
 	}
-	
+
 	// Normalize kernel
 	for i := 0; i < size; i++ {
 		kernel[i] /= sum
 	}
-	
+
 	return kernel
 }
 
@@ -55,16 +55,16 @@ func transposeImage(src *ImageData) *ImageData {
 		height:   src.width,  // Swapped
 		channels: src.channels,
 	}
-	
+
 	for y := 0; y < src.height; y++ {
 		for x := 0; x < src.width; x++ {
 			srcIdx := (y*src.width + x) * src.channels
 			dstIdx := (x*src.height + y) * src.channels
-			
+
 			copy(dst.data[dstIdx:dstIdx+src.channels], src.data[srcIdx:srcIdx+src.channels])
 		}
 	}
-	
+
 	return dst
 }
 
@@ -73,7 +73,7 @@ func horizontalGaussianBlur(src *ImageData, dst *ImageData, kernel []float64, ra
 	for y := startY; y < endY; y++ {
 		for x := 0; x < src.width; x++ {
 			var rSum, gSum, bSum, aSum float64
-			
+
 			// Apply Gaussian kernel
 			for k := -radius; k <= radius; k++ {
 				sx := x + k
@@ -83,10 +83,10 @@ func horizontalGaussianBlur(src *ImageData, dst *ImageData, kernel []float64, ra
 				} else if sx >= src.width {
 					sx = src.width - 1
 				}
-				
+
 				idx := (y*src.width + sx) * src.channels
 				weight := kernel[k+radius]
-				
+
 				rSum += float64(src.data[idx]) * weight
 				gSum += float64(src.data[idx+1]) * weight
 				bSum += float64(src.data[idx+2]) * weight
@@ -96,7 +96,7 @@ func horizontalGaussianBlur(src *ImageData, dst *ImageData, kernel []float64, ra
 					aSum += 255.0 * weight
 				}
 			}
-			
+
 			// Write result
 			dstIdx := (y*dst.width + x) * dst.channels
 			dst.data[dstIdx] = uint8(math.Round(rSum))
@@ -114,10 +114,10 @@ func gaussianBlur(src image.Image, radius int, workers int) image.Image {
 	bounds := src.Bounds()
 	width := bounds.Max.X - bounds.Min.X
 	height := bounds.Max.Y - bounds.Min.Y
-	
+
 	// Generate Gaussian kernel
 	kernel := generateGaussianKernel(radius)
-	
+
 	// Convert to flat array for better performance
 	srcData := &ImageData{
 		data:     make([]uint8, width*height*4),
@@ -125,7 +125,7 @@ func gaussianBlur(src image.Image, radius int, workers int) image.Image {
 		height:   height,
 		channels: 4,
 	}
-	
+
 	// Copy image data
 	idx := 0
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
@@ -138,7 +138,7 @@ func gaussianBlur(src image.Image, radius int, workers int) image.Image {
 			idx += 4
 		}
 	}
-	
+
 	// Allocate buffers
 	dstHorizontal := &ImageData{
 		data:     make([]uint8, len(srcData.data)),
@@ -146,18 +146,18 @@ func gaussianBlur(src image.Image, radius int, workers int) image.Image {
 		height:   height,
 		channels: 4,
 	}
-	
+
 	// Phase 1: Horizontal blur
 	var wg sync.WaitGroup
 	rowsPerWorker := height / workers
-	
+
 	for i := 0; i < workers; i++ {
 		startY := i * rowsPerWorker
 		endY := startY + rowsPerWorker
 		if i == workers-1 {
 			endY = height
 		}
-		
+
 		wg.Add(1)
 		go func(start, end int) {
 			defer wg.Done()
@@ -165,10 +165,10 @@ func gaussianBlur(src image.Image, radius int, workers int) image.Image {
 		}(startY, endY)
 	}
 	wg.Wait()
-	
+
 	// Transpose for vertical pass
 	dstHorizontalTransposed := transposeImage(dstHorizontal)
-	
+
 	// Allocate transposed destination
 	dstVerticalTransposed := &ImageData{
 		data:     make([]uint8, len(srcData.data)),
@@ -176,17 +176,17 @@ func gaussianBlur(src image.Image, radius int, workers int) image.Image {
 		height:   width,  // Swapped
 		channels: 4,
 	}
-	
+
 	// Phase 2: Vertical blur (on transposed data, so it's horizontal in memory)
 	rowsPerWorker = width / workers
-	
+
 	for i := 0; i < workers; i++ {
 		startY := i * rowsPerWorker
 		endY := startY + rowsPerWorker
 		if i == workers-1 {
 			endY = width
 		}
-		
+
 		wg.Add(1)
 		go func(start, end int) {
 			defer wg.Done()
@@ -194,10 +194,10 @@ func gaussianBlur(src image.Image, radius int, workers int) image.Image {
 		}(startY, endY)
 	}
 	wg.Wait()
-	
+
 	// Transpose back to original orientation
 	dstFinal := transposeImage(dstVerticalTransposed)
-	
+
 	// Convert back to image
 	dst := image.NewRGBA(image.Rect(0, 0, width, height))
 	idx = 0
@@ -212,7 +212,7 @@ func gaussianBlur(src image.Image, radius int, workers int) image.Image {
 			idx += 4
 		}
 	}
-	
+
 	return dst
 }
 
@@ -223,7 +223,7 @@ func loadImage(path string) (image.Image, error) {
 		return nil, err
 	}
 	defer file.Close()
-	
+
 	// Decode based on file extension
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
@@ -245,7 +245,7 @@ func saveImage(img image.Image, path string) error {
 		return err
 	}
 	defer file.Close()
-	
+
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
 	case ".jpg", ".jpeg":
@@ -259,17 +259,17 @@ func saveImage(img image.Image, path string) error {
 
 func main() {
 	args := os.Args
-	
+
 	if len(args) < 2 {
 		fmt.Fprintf(os.Stderr, "Usage: %s <input_image> [output_image] [radius] [workers]\n", args[0])
 		os.Exit(1)
 	}
-	
+
 	inputPath := args[1]
 	outputPath := "blurred.png"
 	radius := 5
 	workers := runtime.NumCPU()
-	
+
 	if len(args) > 2 {
 		outputPath = args[2]
 	}
@@ -283,7 +283,7 @@ func main() {
 			workers = w
 		}
 	}
-	
+
 	// Load image
 	fmt.Printf("Loading image: %s\n", inputPath)
 	loadStart := time.Now()
@@ -293,7 +293,7 @@ func main() {
 	}
 	loadDuration := time.Since(loadStart)
 	fmt.Printf("Image loaded in %v\n", loadDuration)
-	
+
 	// Get image dimensions
 	bounds := img.Bounds()
 	width := bounds.Max.X - bounds.Min.X
@@ -301,12 +301,12 @@ func main() {
 	fmt.Printf("Image size: %dx%d\n", width, height)
 	fmt.Printf("Applying Gaussian blur with radius %d using %d workers...\n", radius, workers)
 	blurStart := time.Now()
-	
+
 	result := gaussianBlur(img, radius, workers)
-	
+
 	blurDuration := time.Since(blurStart)
-	fmt.Printf("Blur processing completed in %v (includes transpose operations)\n", blurDuration)
-	
+	fmt.Printf("Blur processing completed in %v\n", blurDuration)
+
 	// Save result
 	fmt.Printf("Saving to: %s\n", outputPath)
 	saveStart := time.Now()
@@ -315,7 +315,7 @@ func main() {
 	}
 	saveDuration := time.Since(saveStart)
 	fmt.Printf("Image saved in %v\n", saveDuration)
-	
+
 	totalDuration := time.Since(loadStart)
 	fmt.Printf("Total time: %v\n", totalDuration)
 	fmt.Println("Done!")

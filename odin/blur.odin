@@ -75,7 +75,7 @@ SIMD_WIDTH :: 64
 PIXEL_PER_ITER :: SIMD_WIDTH / 4
 
 // Horizontal Gaussian blur for 4-channel images with SIMD optimization
-horizontal_gaussian_blur_simd_4ch :: proc(src: ^Image, dst: ^Image, kernel: []f32, radius: int, start_y: int, end_y: int) {
+horizontal_gaussian_blur :: proc(src: ^Image, dst: ^Image, kernel: []f32, radius: int, start_y: int, end_y: int) {
     process_chunk :: proc(src: ^u8, mask: #simd[SIMD_WIDTH]bool, weights: #simd[PIXEL_PER_ITER]f32) -> #simd[PIXEL_PER_ITER]f32 {
         ptr_u8 := cast(^#simd[SIMD_WIDTH]u8)src
         data_masked := simd.masked_load(ptr_u8, cast(#simd[SIMD_WIDTH]u8)0, mask)
@@ -89,16 +89,13 @@ horizontal_gaussian_blur_simd_4ch :: proc(src: ^Image, dst: ^Image, kernel: []f3
         mask = simd.replace(mask, i*4, true)
     }
     for y := start_y; y < end_y; y += 1 {
-        // Process one output pixel at a time
         for x := 0; x < src.width; x += 1 {
             // Accumulators for 4 channels
             r_sum, g_sum, b_sum, a_sum: f32 = 0, 0, 0, 0
-
-            // Apply kernel SIMD_WIDTH elements at a time
+            // Apply kernel PIXEL_PER_ITER elements at a time
             k := 0
             for ; k + PIXEL_PER_ITER - 1 < kernel_size; k += PIXEL_PER_ITER {
-                // Load SIMD_WIDTH kernel weights
-                weights := intrinsics.unaligned_load(cast(^#simd[PIXEL_PER_ITER]f32)&kernel[k])
+                weights := intrinsics.unaligned_load(cast(^#simd[PIXEL_PER_ITER]f32)raw_data(kernel[k:]))
                 base_x := x - radius + k
 
                 // Check if all pixels are within bounds for fast path
@@ -154,27 +151,14 @@ horizontal_gaussian_blur_simd_4ch :: proc(src: ^Image, dst: ^Image, kernel: []f3
     }
 }
 
-// Dispatch to appropriate SIMD function based on channels
-horizontal_gaussian_blur_simd :: proc(src: ^Image, dst: ^Image, kernel: []f32, radius: int, start_y: int, end_y: int) {
-    // For now, we only support 4-channel images with SIMD
-    // You can add a 3-channel version if needed
-    if src.channels == 4 {
-        horizontal_gaussian_blur_simd_4ch(src, dst, kernel, radius, start_y, end_y)
-    } else {
-        // Fallback to non-SIMD for 3-channel images
-        // (not implemented here, but you could add it)
-        horizontal_gaussian_blur_simd_4ch(src, dst, kernel, radius, start_y, end_y)
-    }
-}
-
 worker_horizontal :: proc(t: ^thread.Thread) {
     ctx := cast(^WorkerContext)t.data
-    horizontal_gaussian_blur_simd(ctx.src, ctx.dst, ctx.kernel, ctx.radius, ctx.start_y, ctx.end_y)
+    horizontal_gaussian_blur(ctx.src, ctx.dst, ctx.kernel, ctx.radius, ctx.start_y, ctx.end_y)
 }
 
 worker_horizontal_transposed :: proc(t: ^thread.Thread) {
     ctx := cast(^WorkerContext)t.data
-    horizontal_gaussian_blur_simd(ctx.src_transposed, ctx.dst_transposed, ctx.kernel, ctx.radius, ctx.start_y, ctx.end_y)
+    horizontal_gaussian_blur(ctx.src_transposed, ctx.dst_transposed, ctx.kernel, ctx.radius, ctx.start_y, ctx.end_y)
 }
 
 gaussian_blur :: proc(src: ^Image, dst: ^Image, radius: int, num_workers: int) {
@@ -267,25 +251,20 @@ gaussian_blur :: proc(src: ^Image, dst: ^Image, radius: int, num_workers: int) {
 
 load_image :: proc(filename: cstring) -> (Image, bool) {
     width, height, channels: i32
-    data := stbi.load(filename, &width, &height, &channels, 0)
-
+    data := stbi.load(filename, &width, &height, &channels, 4)
     if data == nil {
         return Image{}, false
     }
-
     img := Image{
         width = int(width),
         height = int(height),
         channels = int(channels),
     }
-
     // Copy data to our slice
     data_size := img.width * img.height * img.channels
     img.data = make([]u8, data_size)
-    mem.copy(&img.data[0], data, data_size)
-
+    mem.copy(raw_data(img.data), data, data_size)
     stbi.image_free(data)
-
     return img, true
 }
 
@@ -338,7 +317,7 @@ main :: proc() {
     log.infof("Image loaded in %v", load_duration)
 
     log.infof("Image size: %dx%d, channels: %d", src.width, src.height, src.channels)
-    log.infof("Applying Gaussian blur with radius %d using %d workers (SIMD width: %d)...", radius, num_workers, SIMD_WIDTH)
+    log.infof("Applying Gaussian blur with radius %d using %d workers...", radius, num_workers)
 
     // Allocate destination
     dst := Image{
@@ -353,7 +332,7 @@ main :: proc() {
     blur_start := time.now()
     gaussian_blur(&src, &dst, radius, num_workers)
     blur_duration := time.since(blur_start)
-    log.infof("Blur processing completed in %v (includes transpose operations)", blur_duration)
+    log.infof("Blur processing completed in %v", blur_duration)
 
     // Save result
     log.info("Saving to:", args[2] if len(args) > 2 else "blurred.png")
