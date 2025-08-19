@@ -7,7 +7,7 @@ RADIUS ?= 5
 WORKERS ?= 8
 
 # Build targets
-.PHONY: all clean go rust rust-async odin
+.PHONY: all clean go rust rust-async odin bench-go bench-rust bench-rust-async bench-odin bench
 
 all: go rust rust-async odin
 
@@ -48,9 +48,6 @@ clean:
 	@cd rust && cargo clean
 	@cd rust_async && cargo clean
 	@echo "Clean complete"
-
-# Benchmark targets using hyperfine
-.PHONY: benchmark bench-go bench-rust bench-rust-async bench-odin bench-all
 
 # Individual benchmarks
 bench-go: go
