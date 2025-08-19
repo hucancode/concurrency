@@ -8,6 +8,7 @@ import "core:thread"
 import "core:sync"
 import "core:time"
 import "core:math"
+import "core:math/linalg"
 import "core:simd"
 import stbi "vendor:stb/image"
 import "core:strings"
@@ -70,99 +71,81 @@ transpose_image :: proc(src: ^Image, dst: ^Image) {
 }
 
 // SIMD width - 8 allows processing 8 pixels at once
-SIMD_WIDTH :: 8
+SIMD_WIDTH :: 64
+PIXEL_PER_ITER :: SIMD_WIDTH / 4
 
 // Horizontal Gaussian blur for 4-channel images with SIMD optimization
 horizontal_gaussian_blur_simd_4ch :: proc(src: ^Image, dst: ^Image, kernel: []f32, radius: int, start_y: int, end_y: int) {
+    process_chunk :: proc(src: ^u8, mask: #simd[SIMD_WIDTH]bool, weights: #simd[PIXEL_PER_ITER]f32) -> #simd[PIXEL_PER_ITER]f32 {
+        ptr_u8 := cast(^#simd[SIMD_WIDTH]u8)src
+        data_masked := simd.masked_load(ptr_u8, cast(#simd[SIMD_WIDTH]u8)0, mask)
+        data_u32 := transmute(#simd[PIXEL_PER_ITER]u32)data_masked
+        data_f32 := cast(#simd[PIXEL_PER_ITER]f32)data_u32
+        return data_f32 * weights
+    }
+    kernel_size := 2 * radius + 1
+    mask : #simd[SIMD_WIDTH]bool
+    for i in 0..<PIXEL_PER_ITER {
+        mask = simd.replace(mask, i*4, true)
+    }
     for y := start_y; y < end_y; y += 1 {
-        x := 0
-
-        // Process SIMD_WIDTH pixels at a time
-        for ; x + SIMD_WIDTH - 1 < src.width; x += SIMD_WIDTH {
-            // Accumulators for SIMD_WIDTH pixels (4 channels each)
-            r_sums := #simd[SIMD_WIDTH]f32{0, 0, 0, 0, 0, 0, 0, 0}
-            g_sums := #simd[SIMD_WIDTH]f32{0, 0, 0, 0, 0, 0, 0, 0}
-            b_sums := #simd[SIMD_WIDTH]f32{0, 0, 0, 0, 0, 0, 0, 0}
-            a_sums := #simd[SIMD_WIDTH]f32{0, 0, 0, 0, 0, 0, 0, 0}
-
-            // Apply Gaussian kernel
-            for k := -radius; k <= radius; k += 1 {
-                weight := kernel[k + radius]
-
-                // Build arrays for SIMD loading
-                r_arr : [SIMD_WIDTH]f32
-                g_arr : [SIMD_WIDTH]f32
-                b_arr : [SIMD_WIDTH]f32
-                a_arr : [SIMD_WIDTH]f32
-                
-                // Load SIMD_WIDTH pixels into arrays
-                for px := 0; px < SIMD_WIDTH; px += 1 {
-                    sx := x + px + k
-                    // Clamp to bounds
-                    if sx < 0 {
-                        sx = 0
-                    } else if sx >= src.width {
-                        sx = src.width - 1
-                    }
-                    
-                    idx := (y * src.width + sx) * 4  // 4 channels
-                    r_arr[px] = f32(src.data[idx])
-                    g_arr[px] = f32(src.data[idx + 1])
-                    b_arr[px] = f32(src.data[idx + 2])
-                    a_arr[px] = f32(src.data[idx + 3])
-                }
-                
-                // Cast arrays to SIMD vectors
-                r_vec := (cast(^#simd[SIMD_WIDTH]f32)&r_arr[0])^
-                g_vec := (cast(^#simd[SIMD_WIDTH]f32)&g_arr[0])^
-                b_vec := (cast(^#simd[SIMD_WIDTH]f32)&b_arr[0])^
-                a_vec := (cast(^#simd[SIMD_WIDTH]f32)&a_arr[0])^
-
-                // Create weight vector (all elements have same weight)
-                weight_vec := #simd[SIMD_WIDTH]f32{weight, weight, weight, weight, weight, weight, weight, weight}
-
-                // Perform SIMD operations
-                r_sums += r_vec * weight_vec
-                g_sums += g_vec * weight_vec
-                b_sums += b_vec * weight_vec
-                a_sums += a_vec * weight_vec
-            }
-
-            // Write results
-            for px := 0; px < SIMD_WIDTH; px += 1 {
-                dst_idx := (y * dst.width + x + px) * 4  // 4 channels
-                dst.data[dst_idx] = u8(math.round_f32(simd.extract(r_sums, px)))
-                dst.data[dst_idx + 1] = u8(math.round_f32(simd.extract(g_sums, px)))
-                dst.data[dst_idx + 2] = u8(math.round_f32(simd.extract(b_sums, px)))
-                dst.data[dst_idx + 3] = u8(math.round_f32(simd.extract(a_sums, px)))
-            }
-        }
-
-        // Handle remaining pixels
-        for ; x < src.width; x += 1 {
+        // Process one output pixel at a time
+        for x := 0; x < src.width; x += 1 {
+            // Accumulators for 4 channels
             r_sum, g_sum, b_sum, a_sum: f32 = 0, 0, 0, 0
 
-            // Apply Gaussian kernel
-            for k := -radius; k <= radius; k += 1 {
-                sx := x + k
-                // Clamp to bounds
-                if sx < 0 {
-                    sx = 0
-                } else if sx >= src.width {
-                    sx = src.width - 1
+            // Apply kernel SIMD_WIDTH elements at a time
+            k := 0
+            for ; k + PIXEL_PER_ITER - 1 < kernel_size; k += PIXEL_PER_ITER {
+                // Load SIMD_WIDTH kernel weights
+                weights := intrinsics.unaligned_load(cast(^#simd[PIXEL_PER_ITER]f32)&kernel[k])
+                base_x := x - radius + k
+
+                // Check if all pixels are within bounds for fast path
+                if base_x >= 0 && base_x + PIXEL_PER_ITER - 1 < src.width {
+                    // Fast path: all pixels within bounds
+                    // Process PIXEL_PER_ITER pixels at once, accumulating directly
+                    idx := (y * src.width + base_x) * 4
+                    r_sum += simd.reduce_add_ordered(process_chunk(raw_data(src.data[idx:]), mask, weights))
+                    g_sum += simd.reduce_add_ordered(process_chunk(raw_data(src.data[idx+1:]), mask, weights))
+                    b_sum += simd.reduce_add_ordered(process_chunk(raw_data(src.data[idx+2:]), mask, weights))
+                    a_sum += simd.reduce_add_ordered(process_chunk(raw_data(src.data[idx+3:]), mask, weights))
+                } else {
+                    // Slow path: need boundary checking - fall back to scalar
+                    for i in 0..<PIXEL_PER_ITER {
+                        px := base_x + i
+                        // Clamp to image bounds
+                        if px < 0 { px = 0 }
+                        if px >= src.width { px = src.width - 1 }
+
+                        idx := (y * src.width + px) * 4
+                        weight := simd.extract(weights, i)
+                        r_sum += f32(src.data[idx]) * weight
+                        g_sum += f32(src.data[idx + 1]) * weight
+                        b_sum += f32(src.data[idx + 2]) * weight
+                        a_sum += f32(src.data[idx + 3]) * weight
+                    }
                 }
+            }
 
-                idx := (y * src.width + sx) * 4  // 4 channels
-                weight := kernel[k + radius]
+            // Handle remaining kernel elements
+            for ; k < kernel_size; k += 1 {
+                weight := kernel[k]
+                px := x - radius + k
 
+                // Clamp to bounds
+                if px < 0 { px = 0 }
+                if px >= src.width { px = src.width - 1 }
+
+                idx := (y * src.width + px) * 4
                 r_sum += f32(src.data[idx]) * weight
                 g_sum += f32(src.data[idx + 1]) * weight
                 b_sum += f32(src.data[idx + 2]) * weight
                 a_sum += f32(src.data[idx + 3]) * weight
             }
 
-            // Write result
-            dst_idx := (y * dst.width + x) * 4  // 4 channels
+            // Write result for this pixel
+            dst_idx := (y * dst.width + x) * 4
             dst.data[dst_idx] = u8(math.round_f32(r_sum))
             dst.data[dst_idx + 1] = u8(math.round_f32(g_sum))
             dst.data[dst_idx + 2] = u8(math.round_f32(b_sum))
