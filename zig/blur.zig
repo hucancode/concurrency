@@ -1,69 +1,12 @@
 const std = @import("std");
-const stb = @cImport({
-    @cInclude("../stb/stb_image.h");
-    @cInclude("../stb/stb_image_write.h");
-});
-
-const Image = struct {
-    data: []u8,
-    width: usize,
-    height: usize,
-    channels: usize,
-
-    fn deinit(self: *Image, allocator: std.mem.Allocator) void {
-        allocator.free(self.data);
-    }
-};
+const main = @import("main.zig");
+const Image = main.Image;
 
 const WorkItem = struct {
     start_row: usize,
     end_row: usize,
 };
 
-fn loadImage(path: []const u8, allocator: std.mem.Allocator) !Image {
-    var width: c_int = 0;
-    var height: c_int = 0;
-    var channels: c_int = 0;
-
-    const c_path = try allocator.dupeZ(u8, path);
-    defer allocator.free(c_path);
-
-    // Force loading with 4 channels (RGBA)
-    const raw_data = stb.stbi_load(c_path.ptr, &width, &height, &channels, 4);
-    if (raw_data == null) {
-        return error.ImageLoadFailed;
-    }
-    defer stb.stbi_image_free(raw_data);
-
-    const size = @as(usize, @intCast(width)) * @as(usize, @intCast(height)) * 4; // Always 4 channels
-    const data = try allocator.alloc(u8, size);
-    @memcpy(data, raw_data[0..size]);
-
-    return Image{
-        .data = data,
-        .width = @intCast(width),
-        .height = @intCast(height),
-        .channels = 4, // Always 4 channels
-    };
-}
-
-fn saveImage(image: *const Image, path: []const u8, allocator: std.mem.Allocator) !void {
-    const c_path = try allocator.dupeZ(u8, path);
-    defer allocator.free(c_path);
-
-    const result = stb.stbi_write_png(
-        c_path.ptr,
-        @intCast(image.width),
-        @intCast(image.height),
-        @intCast(image.channels),
-        image.data.ptr,
-        @intCast(image.width * image.channels),
-    );
-
-    if (result == 0) {
-        return error.ImageSaveFailed;
-    }
-}
 
 fn generateGaussianKernel(radius: usize, allocator: std.mem.Allocator) ![]f32 {
     const size = 2 * radius + 1;
@@ -239,7 +182,11 @@ fn workerThread(
     }
 }
 
-fn gaussianBlur(image: *Image, radius: usize, workers: usize, allocator: std.mem.Allocator) !void {
+pub fn gaussianBlur(allocator: std.mem.Allocator, src: *const Image, dst: *Image, radius: usize, workers: usize) !void {
+    // Copy src to dst to work in-place
+    @memcpy(dst.data, src.data);
+    
+    const image = dst;
     const kernel = try generateGaussianKernel(radius, allocator);
     defer allocator.free(kernel);
 
@@ -338,47 +285,3 @@ fn gaussianBlur(image: *Image, radius: usize, workers: usize, allocator: std.mem
     transpose(temp1, image.data, image.height, image.width, image.channels);
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
-    if (args.len != 5) {
-        std.debug.print("Usage: {s} <input_image> <output_image> <radius> <workers>\n", .{args[0]});
-        std.process.exit(1);
-    }
-
-    const input_path = args[1];
-    const output_path = args[2];
-    const radius = try std.fmt.parseInt(usize, args[3], 10);
-    const workers = try std.fmt.parseInt(usize, args[4], 10);
-
-    // Load image
-    const start_load = std.time.milliTimestamp();
-    var image = try loadImage(input_path, allocator);
-    defer image.deinit(allocator);
-    const load_time = std.time.milliTimestamp() - start_load;
-
-    std.debug.print("Image loaded: {}x{} pixels, {} channels\n", .{ image.width, image.height, image.channels });
-    std.debug.print("Load time: {}ms\n", .{load_time});
-
-    // Apply blur
-    const start_blur = std.time.milliTimestamp();
-    try gaussianBlur(&image, radius, workers, allocator);
-    const blur_time = std.time.milliTimestamp() - start_blur;
-
-    std.debug.print("Blur time: {}ms\n", .{blur_time});
-
-    // Save image
-    const start_save = std.time.milliTimestamp();
-    try saveImage(&image, output_path, allocator);
-    const save_time = std.time.milliTimestamp() - start_save;
-
-    std.debug.print("Save time: {}ms\n", .{save_time});
-
-    const total_time = load_time + blur_time + save_time;
-    std.debug.print("Total time: {}ms\n", .{total_time});
-}

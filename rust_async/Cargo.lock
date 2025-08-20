@@ -396,7 +396,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust_blur_async"
+name = "rust_filter_async"
 version = "0.1.0"
 dependencies = [
  "image",

@@ -1,14 +1,18 @@
 CC = gcc
 CFLAGS = -O3 -march=native -pthread -lm -Wall -Wextra
-TARGET = blur_c
-SRC = blur.c
+TARGET = filter_c
+SRCS = main.c blur.c kuwahara.c
+OBJS = $(SRCS:.c=.o)
 
 all: $(TARGET)
 
-$(TARGET): $(SRC)
-	$(CC) $(SRC) -o $(TARGET) $(CFLAGS)
+$(TARGET): $(OBJS)
+	$(CC) $(OBJS) -o $(TARGET) $(CFLAGS)
+
+%.o: %.c
+	$(CC) -c $< -o $@ $(CFLAGS)
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) $(OBJS)
 
 .PHONY: all clean

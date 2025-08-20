@@ -1,1 +1,2 @@
-blur_c
+filter_c
+*.o

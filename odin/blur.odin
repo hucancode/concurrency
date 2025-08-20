@@ -14,14 +14,9 @@ import stbi "vendor:stb/image"
 import "core:strings"
 import "core:mem"
 
-Image :: struct {
-    data: []u8,
-    width: int,
-    height: int,
-    channels: int,
-}
+// Image struct is defined in common.odin
 
-WorkerContext :: struct {
+BlurWorkerContext :: struct {
     src: ^Image,
     src_transposed: ^Image,
     dst: ^Image,
@@ -149,12 +144,12 @@ horizontal_gaussian_blur :: proc(src: ^Image, dst: ^Image, kernel: []f32, radius
 }
 
 worker_horizontal :: proc(t: ^thread.Thread) {
-    ctx := cast(^WorkerContext)t.data
+    ctx := cast(^BlurWorkerContext)t.data
     horizontal_gaussian_blur(ctx.src, ctx.dst, ctx.kernel, ctx.radius, ctx.start_y, ctx.end_y)
 }
 
 worker_horizontal_transposed :: proc(t: ^thread.Thread) {
-    ctx := cast(^WorkerContext)t.data
+    ctx := cast(^BlurWorkerContext)t.data
     horizontal_gaussian_blur(ctx.src_transposed, ctx.dst_transposed, ctx.kernel, ctx.radius, ctx.start_y, ctx.end_y)
 }
 
@@ -193,10 +188,10 @@ gaussian_blur :: proc(src: ^Image, dst: ^Image, radius: int, num_workers: int) {
     // Phase 1: Horizontal blur
     rows_per_worker := src.height / num_workers
     workers := make([]^thread.Thread, num_workers)
-    contexts := make([]WorkerContext, num_workers)
+    contexts := make([]BlurWorkerContext, num_workers)
 
     for i := 0; i < num_workers; i += 1 {
-        contexts[i] = WorkerContext{
+        contexts[i] = BlurWorkerContext{
             src = src,
             dst = &temp,
             kernel = kernel,
@@ -221,7 +216,7 @@ gaussian_blur :: proc(src: ^Image, dst: ^Image, radius: int, num_workers: int) {
     rows_per_worker = src.width / num_workers
 
     for i := 0; i < num_workers; i += 1 {
-        contexts[i] = WorkerContext{
+        contexts[i] = BlurWorkerContext{
             src_transposed = &src_transposed,
             dst_transposed = &dst_transposed,
             kernel = kernel,
@@ -246,31 +241,9 @@ gaussian_blur :: proc(src: ^Image, dst: ^Image, radius: int, num_workers: int) {
     delete(contexts)
 }
 
-load_image :: proc(filename: cstring) -> (Image, bool) {
-    width, height, channels: i32
-    data := stbi.load(filename, &width, &height, &channels, 4)
-    if data == nil {
-        return Image{}, false
-    }
-    img := Image{
-        width = int(width),
-        height = int(height),
-        channels = 4,  // Always 4 channels
-    }
-    // Copy data to our slice
-    data_size := img.width * img.height * 4
-    img.data = make([]u8, data_size)
-    mem.copy(raw_data(img.data), data, data_size)
-    stbi.image_free(data)
-    return img, true
-}
+// load_image and save_image are defined in main.odin
 
-save_image :: proc(filename: cstring, img: ^Image) -> bool {
-    result := stbi.write_png(filename, i32(img.width), i32(img.height), i32(img.channels), &img.data[0], i32(img.width * img.channels))
-    return result != 0
-}
-
-main :: proc() {
+blur_main_old :: proc() {
     context.logger = log.create_console_logger()
     args := os.args
 
@@ -279,11 +252,8 @@ main :: proc() {
         os.exit(1)
     }
 
-    input_path := strings.clone_to_cstring(args[1])
-    defer delete(input_path)
-
-    output_path := strings.clone_to_cstring(args[2] if len(args) > 2 else "blurred.png")
-    defer delete(output_path)
+    input_path := args[1]
+    output_path := args[2] if len(args) > 2 else "blurred.png"
 
     radius := 5
     if len(args) > 3 {
@@ -304,12 +274,13 @@ main :: proc() {
     // Load image
     log.info("Loading image:", args[1])
     load_start := time.now()
-    src, ok := load_image(input_path)
+    src_ptr, ok := load_image(input_path)
     if !ok {
         log.error("Failed to load image")
         os.exit(1)
     }
-    defer delete(src.data)
+    defer free_image(src_ptr)
+    src := src_ptr^
     load_duration := time.since(load_start)
     log.infof("Image loaded in %v", load_duration)
 
@@ -327,7 +298,7 @@ main :: proc() {
 
     // Apply blur
     blur_start := time.now()
-    gaussian_blur(&src, &dst, radius, num_workers)
+    gaussian_blur(src_ptr, &dst, radius, num_workers)
     blur_duration := time.since(blur_start)
     log.infof("Blur processing completed in %v", blur_duration)
 
