@@ -25,7 +25,7 @@ type ImageData struct {
 	channels int
 }
 
-// generateGaussianKernel creates a 1D Gaussian kernel
+// create a 1D Gaussian kernel
 func generateGaussianKernel(radius int) []float64 {
 	size := 2*radius + 1
 	kernel := make([]float64, size)
@@ -40,7 +40,7 @@ func generateGaussianKernel(radius int) []float64 {
 	}
 
 	// Normalize kernel
-	for i := 0; i < size; i++ {
+	for i := range size {
 		kernel[i] /= sum
 	}
 
@@ -56,8 +56,8 @@ func transposeImage(src *ImageData) *ImageData {
 		channels: src.channels,
 	}
 
-	for y := 0; y < src.height; y++ {
-		for x := 0; x < src.width; x++ {
+	for y := range src.height {
+		for x := range src.width {
 			srcIdx := (y*src.width + x) * src.channels
 			dstIdx := (x*src.height + y) * src.channels
 
@@ -68,19 +68,78 @@ func transposeImage(src *ImageData) *ImageData {
 	return dst
 }
 
-// horizontalGaussianBlur applies horizontal Gaussian blur
+// apply a single pass horizontal Gaussian blur
 func horizontalGaussianBlur(src *ImageData, dst *ImageData, kernel []float64, radius int, startY, endY int) {
 	for y := startY; y < endY; y++ {
-		for x := 0; x < src.width; x++ {
+		// Process left edge (x < radius)
+		for x := 0; x < radius && x < src.width; x++ {
 			var rSum, gSum, bSum, aSum float64
 
-			// Apply Gaussian kernel
+			for k := -radius; k <= radius; k++ {
+				sx := max(x + k, 0)
+
+				idx := (y*src.width + sx) * src.channels
+				weight := kernel[k+radius]
+
+				rSum += float64(src.data[idx]) * weight
+				gSum += float64(src.data[idx+1]) * weight
+				bSum += float64(src.data[idx+2]) * weight
+				if src.channels == 4 {
+					aSum += float64(src.data[idx+3]) * weight
+				} else {
+					aSum += 255.0 * weight
+				}
+			}
+
+			dstIdx := (y*dst.width + x) * dst.channels
+			dst.data[dstIdx] = uint8(math.Round(rSum))
+			dst.data[dstIdx+1] = uint8(math.Round(gSum))
+			dst.data[dstIdx+2] = uint8(math.Round(bSum))
+			if dst.channels == 4 {
+				dst.data[dstIdx+3] = uint8(math.Round(aSum))
+			}
+		}
+
+		// Process middle part (no boundary checks needed)
+		for x := radius; x < src.width-radius; x++ {
+			var rSum, gSum, bSum, aSum float64
+
+			// No bounds checking needed here
 			for k := -radius; k <= radius; k++ {
 				sx := x + k
-				// Clamp to image bounds
-				if sx < 0 {
-					sx = 0
-				} else if sx >= src.width {
+				idx := (y*src.width + sx) * src.channels
+				weight := kernel[k+radius]
+
+				rSum += float64(src.data[idx]) * weight
+				gSum += float64(src.data[idx+1]) * weight
+				bSum += float64(src.data[idx+2]) * weight
+				if src.channels == 4 {
+					aSum += float64(src.data[idx+3]) * weight
+				} else {
+					aSum += 255.0 * weight
+				}
+			}
+
+			dstIdx := (y*dst.width + x) * dst.channels
+			dst.data[dstIdx] = uint8(math.Round(rSum))
+			dst.data[dstIdx+1] = uint8(math.Round(gSum))
+			dst.data[dstIdx+2] = uint8(math.Round(bSum))
+			if dst.channels == 4 {
+				dst.data[dstIdx+3] = uint8(math.Round(aSum))
+			}
+		}
+
+		// Process right edge (x >= width - radius)
+		for x := src.width - radius; x < src.width; x++ {
+			if x < radius {
+				continue // Skip if already processed in left edge
+			}
+
+			var rSum, gSum, bSum, aSum float64
+
+			for k := -radius; k <= radius; k++ {
+				sx := x + k
+				if sx >= src.width {
 					sx = src.width - 1
 				}
 
@@ -97,7 +156,6 @@ func horizontalGaussianBlur(src *ImageData, dst *ImageData, kernel []float64, ra
 				}
 			}
 
-			// Write result
 			dstIdx := (y*dst.width + x) * dst.channels
 			dst.data[dstIdx] = uint8(math.Round(rSum))
 			dst.data[dstIdx+1] = uint8(math.Round(gSum))
@@ -109,7 +167,7 @@ func horizontalGaussianBlur(src *ImageData, dst *ImageData, kernel []float64, ra
 	}
 }
 
-// gaussianBlur applies a separable Gaussian blur filter
+// apply a separable Gaussian blur filter
 func gaussianBlur(src image.Image, radius int, workers int) image.Image {
 	bounds := src.Bounds()
 	width := bounds.Max.X - bounds.Min.X
@@ -151,7 +209,7 @@ func gaussianBlur(src image.Image, radius int, workers int) image.Image {
 	var wg sync.WaitGroup
 	rowsPerWorker := height / workers
 
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		startY := i * rowsPerWorker
 		endY := startY + rowsPerWorker
 		if i == workers-1 {
@@ -180,7 +238,7 @@ func gaussianBlur(src image.Image, radius int, workers int) image.Image {
 	// Phase 2: Vertical blur (on transposed data, so it's horizontal in memory)
 	rowsPerWorker = width / workers
 
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		startY := i * rowsPerWorker
 		endY := startY + rowsPerWorker
 		if i == workers-1 {
@@ -201,8 +259,8 @@ func gaussianBlur(src image.Image, radius int, workers int) image.Image {
 	// Convert back to image
 	dst := image.NewRGBA(image.Rect(0, 0, width, height))
 	idx = 0
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
+	for y := range height {
+		for x := range width {
 			dst.Set(x, y, color.RGBA{
 				R: dstFinal.data[idx],
 				G: dstFinal.data[idx+1],

@@ -258,10 +258,10 @@ load_image :: proc(filename: cstring) -> (Image, bool) {
     img := Image{
         width = int(width),
         height = int(height),
-        channels = int(channels),
+        channels = 4,  // Always 4 channels
     }
     // Copy data to our slice
-    data_size := img.width * img.height * img.channels
+    data_size := img.width * img.height * 4
     img.data = make([]u8, data_size)
     mem.copy(raw_data(img.data), data, data_size)
     stbi.image_free(data)

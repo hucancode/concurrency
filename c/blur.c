@@ -6,9 +6,9 @@
 #include <time.h>
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "../stb/stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+#include "../stb/stb_image_write.h"
 
 typedef struct {
     unsigned char* data;
@@ -52,18 +52,55 @@ void blur_horizontal(Image* src, Image* dst, float* kernel, int radius, int star
     int kernel_size = 2 * radius + 1;
 
     for (int y = start_row; y < end_row; y++) {
-        for (int x = 0; x < src->width; x++) {
-            for (int ch = 0; ch < src->channels; ch++) {
+        // Process left edge (x < radius)
+        for (int x = 0; x < radius && x < src->width; x++) {
+            // Always 4 channels now (RGBA)
+            for (int ch = 0; ch < 4; ch++) {
                 float sum = 0.0f;
 
                 for (int k = 0; k < kernel_size; k++) {
                     int src_x = x + k - radius;
-
-                    // Clamp to bounds
                     if (src_x < 0) src_x = 0;
+
+                    int idx = (y * src->width + src_x) * 4 + ch;
+                    sum += src->data[idx] * kernel[k];
+                }
+
+                int dst_idx = (y * dst->width + x) * 4 + ch;
+                dst->data[dst_idx] = (unsigned char)roundf(sum);
+            }
+        }
+
+        // Process middle part (no boundary checks needed)
+        for (int x = radius; x < src->width - radius; x++) {
+            // Always 4 channels now (RGBA)
+            for (int ch = 0; ch < 4; ch++) {
+                float sum = 0.0f;
+
+                // No bounds checking needed here
+                for (int k = 0; k < kernel_size; k++) {
+                    int src_x = x + k - radius;
+                    int idx = (y * src->width + src_x) * 4 + ch;
+                    sum += src->data[idx] * kernel[k];
+                }
+
+                int dst_idx = (y * dst->width + x) * 4 + ch;
+                dst->data[dst_idx] = (unsigned char)roundf(sum);
+            }
+        }
+
+        // Process right edge (x >= width - radius)
+        for (int x = src->width - radius; x < src->width; x++) {
+            if (x < radius) continue;  // Skip if already processed in left edge
+
+            for (int ch = 0; ch < 4; ch++) {
+                float sum = 0.0f;
+
+                for (int k = 0; k < kernel_size; k++) {
+                    int src_x = x + k - radius;
                     if (src_x >= src->width) src_x = src->width - 1;
 
-                    int idx = (y * src->width + src_x) * src->channels + ch;
+                    int idx = (y * src->width + src_x) * 4 + ch;
                     sum += src->data[idx] * kernel[k];
                 }
 
@@ -78,9 +115,9 @@ void blur_horizontal(Image* src, Image* dst, float* kernel, int radius, int star
 void transpose_image(Image* src, Image* dst) {
     for (int y = 0; y < src->height; y++) {
         for (int x = 0; x < src->width; x++) {
-            for (int ch = 0; ch < src->channels; ch++) {
-                int src_idx = (y * src->width + x) * src->channels + ch;
-                int dst_idx = (x * src->height + y) * src->channels + ch;
+            for (int ch = 0; ch < 4; ch++) {
+                int src_idx = (y * src->width + x) * 4 + ch;
+                int dst_idx = (x * src->height + y) * 4 + ch;
                 dst->data[dst_idx] = src->data[src_idx];
             }
         }
@@ -100,17 +137,17 @@ void gaussian_blur(Image* src, Image* dst, int radius, int num_workers) {
 
     // Allocate temporary buffers
     Image temp1 = {
-        .data = (unsigned char*)malloc(src->width * src->height * src->channels),
+        .data = (unsigned char*)malloc(src->width * src->height * 4),
         .width = src->width,
         .height = src->height,
-        .channels = src->channels
+        .channels = 4
     };
 
     Image temp2 = {
-        .data = (unsigned char*)malloc(src->width * src->height * src->channels),
+        .data = (unsigned char*)malloc(src->width * src->height * 4),
         .width = src->height,  // Swapped for transpose
         .height = src->width,
-        .channels = src->channels
+        .channels = 4
     };
 
     // Create worker contexts and threads
@@ -140,10 +177,10 @@ void gaussian_blur(Image* src, Image* dst, int radius, int num_workers) {
 
     // Create temp3 for the second blur pass result
     Image temp3 = {
-        .data = (unsigned char*)malloc(src->width * src->height * src->channels),
+        .data = (unsigned char*)malloc(src->width * src->height * 4),
         .width = src->height,  // Still transposed
         .height = src->width,
-        .channels = src->channels
+        .channels = 4
     };
 
     // Phase 2: Vertical blur (horizontal on transposed)
@@ -179,7 +216,8 @@ void gaussian_blur(Image* src, Image* dst, int radius, int num_workers) {
 // Load image using stb_image
 Image* load_image(const char* filename) {
     int width, height, channels;
-    unsigned char* data = stbi_load(filename, &width, &height, &channels, 0);
+    // Force loading with 4 channels (RGBA)
+    unsigned char* data = stbi_load(filename, &width, &height, &channels, 4);
     if (!data) {
         return NULL;
     }
@@ -187,7 +225,7 @@ Image* load_image(const char* filename) {
     Image* img = (Image*)malloc(sizeof(Image));
     img->width = width;
     img->height = height;
-    img->channels = channels;
+    img->channels = 4;  // Always 4 channels
     img->data = data;
 
     return img;
@@ -244,7 +282,7 @@ int main(int argc, char* argv[]) {
     dst->width = src->width;
     dst->height = src->height;
     dst->channels = src->channels;
-    dst->data = (unsigned char*)malloc(src->width * src->height * src->channels);
+    dst->data = (unsigned char*)malloc(src->width * src->height * 4);
 
     // Apply blur
     start_time = get_time_ms();
