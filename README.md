@@ -33,7 +33,8 @@ All implementations use the same Gaussian blur algorithm:
 - **Image transpose**: Transpose data between passes for cache-friendly memory access patterns
 - **Row buffering**: Process entire rows before writing to minimize lock contention
 - **Pre-assigned work**: Avoid work-stealing patterns that cause contention
-- **SIMD vectorization (Odin & Zig)**: Process multiple pixels at once using vector operations. Odin uses `#simd[16]f32` vectors while Zig uses `@Vector(16, f32)`.
+- **SIMD vectorization (Odin & Zig)**: Process multiple pixels at once using vector operations. Odin uses `#simd[16]f32` vectors while Zig uses `@Vector(16, f32)`
+- **More about SIMD**: We can write SIMD code with Rust, Go, C but it is currently not officially supported and encouraged in those languages
 
 ## Running
 
