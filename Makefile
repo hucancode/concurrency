@@ -7,9 +7,15 @@ RADIUS ?= 5
 WORKERS ?= 64
 
 # Build targets
-.PHONY: all clean go rust rust-async odin zig bench-go bench-rust bench-rust-async bench-odin bench-zig bench
+.PHONY: all clean c go rust rust-async odin zig bench-c bench-go bench-rust bench-rust-async bench-odin bench-zig bench
 
-all: go rust rust-async odin zig
+all: c go rust rust-async odin zig
+
+# C - build with optimizations
+c:
+	@echo "Building C implementation..."
+	cd c && make
+	@echo "C binary built: c/blur_c"
 
 # Go - build with optimizations
 go:
@@ -44,16 +50,26 @@ zig:
 # Clean all built binaries
 clean:
 	@echo "Cleaning built binaries..."
+	@rm -f c/blur_c
 	@rm -f go/blur_go
 	@rm -f odin/blur_odin
-	@rm -f $(OUTPUT_IMAGE)
 	@rm -rf zig/zig-out
 	@rm -rf zig/.zig-cache
 	@cd rust && cargo clean
 	@cd rust_async && cargo clean
+	@rm -f $(OUTPUT_IMAGE)
 	@echo "Clean complete"
 
 # Individual benchmarks
+bench-c: c
+	@echo "Benchmarking C implementation..."
+	hyperfine --warmup 3 --runs 10 \
+		"./c/blur_c $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 1" \
+		"./c/blur_c $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 4" \
+		"./c/blur_c $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 16" \
+		"./c/blur_c $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
+		"./c/blur_c $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
+
 bench-go: go
 	@echo "Benchmarking Go implementation..."
 	hyperfine --warmup 3 --runs 10 \
@@ -103,6 +119,7 @@ bench-zig: zig
 bench: all
 	@echo "Benchmarking all implementations..."
 	hyperfine --warmup 3 --runs 10 \
+		-n "C ($(WORKERS) threads)" "./c/blur_c $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
 		-n "Go ($(WORKERS) workers)" "./go/blur_go $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
 		-n "Rust threads ($(WORKERS) threads)" "./rust/target/release/rust_blur $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
 		-n "Rust async ($(WORKERS) tasks)" "./rust_async/target/release/rust_blur_async $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
@@ -115,6 +132,7 @@ help:
 	@echo "  make clean       - Remove all built binaries"
 	@echo ""
 	@echo "Benchmark targets:"
+	@echo "  make bench-c          - Benchmark C with different worker counts"
 	@echo "  make bench-go         - Benchmark Go with different worker counts"
 	@echo "  make bench-rust       - Benchmark Rust threads with different worker counts"
 	@echo "  make bench-rust-async - Benchmark Rust async with different worker counts"
