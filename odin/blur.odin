@@ -59,13 +59,10 @@ transpose_image :: proc(src: ^Image, dst: ^Image) {
         for x := 0; x < src.width; x += 1 {
             src_idx := (y * src.width + x) * src.channels
             dst_idx := (x * src.height + y) * src.channels
-
             dst.data[dst_idx] = src.data[src_idx]
             dst.data[dst_idx + 1] = src.data[src_idx + 1]
             dst.data[dst_idx + 2] = src.data[src_idx + 2]
-            if src.channels == 4 {
-                dst.data[dst_idx + 3] = src.data[src_idx + 3]
-            }
+            dst.data[dst_idx + 3] = src.data[src_idx + 3]
         }
     }
 }

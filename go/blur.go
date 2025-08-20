@@ -33,7 +33,7 @@ func generateGaussianKernel(radius int) []float64 {
 	sum := 0.0
 
 	// Calculate Gaussian values
-	for i := 0; i < size; i++ {
+	for i := range size {
 		x := float64(i - radius)
 		kernel[i] = math.Exp(-(x*x) / (2.0 * sigma * sigma))
 		sum += kernel[i]
@@ -84,27 +84,19 @@ func horizontalGaussianBlur(src *ImageData, dst *ImageData, kernel []float64, ra
 				rSum += float64(src.data[idx]) * weight
 				gSum += float64(src.data[idx+1]) * weight
 				bSum += float64(src.data[idx+2]) * weight
-				if src.channels == 4 {
-					aSum += float64(src.data[idx+3]) * weight
-				} else {
-					aSum += 255.0 * weight
-				}
+				aSum += float64(src.data[idx+3]) * weight
 			}
 
 			dstIdx := (y*dst.width + x) * dst.channels
 			dst.data[dstIdx] = uint8(math.Round(rSum))
 			dst.data[dstIdx+1] = uint8(math.Round(gSum))
 			dst.data[dstIdx+2] = uint8(math.Round(bSum))
-			if dst.channels == 4 {
-				dst.data[dstIdx+3] = uint8(math.Round(aSum))
-			}
+			dst.data[dstIdx+3] = uint8(math.Round(aSum))
 		}
 
 		// Process middle part (no boundary checks needed)
 		for x := radius; x < src.width-radius; x++ {
 			var rSum, gSum, bSum, aSum float64
-
-			// No bounds checking needed here
 			for k := -radius; k <= radius; k++ {
 				sx := x + k
 				idx := (y*src.width + sx) * src.channels
@@ -113,20 +105,14 @@ func horizontalGaussianBlur(src *ImageData, dst *ImageData, kernel []float64, ra
 				rSum += float64(src.data[idx]) * weight
 				gSum += float64(src.data[idx+1]) * weight
 				bSum += float64(src.data[idx+2]) * weight
-				if src.channels == 4 {
-					aSum += float64(src.data[idx+3]) * weight
-				} else {
-					aSum += 255.0 * weight
-				}
+				aSum += float64(src.data[idx+3]) * weight
 			}
 
 			dstIdx := (y*dst.width + x) * dst.channels
 			dst.data[dstIdx] = uint8(math.Round(rSum))
 			dst.data[dstIdx+1] = uint8(math.Round(gSum))
 			dst.data[dstIdx+2] = uint8(math.Round(bSum))
-			if dst.channels == 4 {
-				dst.data[dstIdx+3] = uint8(math.Round(aSum))
-			}
+			dst.data[dstIdx+3] = uint8(math.Round(aSum))
 		}
 
 		// Process right edge (x >= width - radius)
@@ -149,20 +135,14 @@ func horizontalGaussianBlur(src *ImageData, dst *ImageData, kernel []float64, ra
 				rSum += float64(src.data[idx]) * weight
 				gSum += float64(src.data[idx+1]) * weight
 				bSum += float64(src.data[idx+2]) * weight
-				if src.channels == 4 {
-					aSum += float64(src.data[idx+3]) * weight
-				} else {
-					aSum += 255.0 * weight
-				}
+				aSum += float64(src.data[idx+3]) * weight
 			}
 
 			dstIdx := (y*dst.width + x) * dst.channels
 			dst.data[dstIdx] = uint8(math.Round(rSum))
 			dst.data[dstIdx+1] = uint8(math.Round(gSum))
 			dst.data[dstIdx+2] = uint8(math.Round(bSum))
-			if dst.channels == 4 {
-				dst.data[dstIdx+3] = uint8(math.Round(aSum))
-			}
+			dst.data[dstIdx+3] = uint8(math.Round(aSum))
 		}
 	}
 }

@@ -35,7 +35,7 @@ fn loadImage(path: []const u8, allocator: std.mem.Allocator) !Image {
     }
     defer stb.stbi_image_free(raw_data);
 
-    const size = @as(usize, @intCast(width)) * @as(usize, @intCast(height)) * @as(usize, @intCast(channels));
+    const size = @as(usize, @intCast(width)) * @as(usize, @intCast(height)) * 4; // Always 4 channels
     const data = try allocator.alloc(u8, size);
     @memcpy(data, raw_data[0..size]);
 
