@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -O3 -march=native -pthread -lm -Wall -Wextra
 TARGET = filter_c
-SRCS = main.c blur.c kuwahara.c
+SRCS = main.c blur.c kuwahara.c monte_carlo.c
 OBJS = $(SRCS:.c=.o)
 
 all: $(TARGET)

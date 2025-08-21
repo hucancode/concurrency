@@ -3,6 +3,7 @@ const c = @cImport({
     @cInclude("../stb/stb_image.h");
     @cInclude("../stb/stb_image_write.h");
 });
+const monte_carlo = @import("monte_carlo.zig");
 
 pub const Image = struct {
     data: []u8,
@@ -60,7 +61,8 @@ pub fn freeImage(img: *Image) void {
 
 fn printUsage(program: []const u8) void {
     std.debug.print("Usage: {s} <operation> <input_image> <output_image> <radius> <workers>\n", .{program});
-    std.debug.print("  operation: 'blur' or 'kuwahara'\n", .{});
+    std.debug.print("  operation: 'blur', 'kuwahara', or 'monte_carlo'\n", .{});
+    std.debug.print("  For monte_carlo: radius represents number of samples\n", .{});
 }
 
 pub fn main() !void {
@@ -82,6 +84,16 @@ pub fn main() !void {
     const radius = try std.fmt.parseInt(i32, args[4], 10);
     const num_workers = try std.fmt.parseInt(usize, args[5], 10);
 
+    if (std.mem.eql(u8, operation, "monte_carlo")) {
+        const samples: usize = @intCast(radius);
+        std.debug.print("Monte Carlo Pi estimation with {} samples using {} workers\n", .{ samples, num_workers });
+        var timer = try std.time.Timer.start();
+        try monte_carlo.monteCarloOperation(samples, num_workers);
+        const elapsed = timer.read();
+        std.debug.print("Time: {}ms\n", .{elapsed / 1_000_000});
+        return;
+    }
+
     var timer = try std.time.Timer.start();
 
     var src = try loadImage(allocator, input_path);
@@ -102,7 +114,7 @@ pub fn main() !void {
     };
 
     timer.reset();
-    
+
     if (std.mem.eql(u8, operation, "blur")) {
         std.debug.print("Applying Gaussian blur with radius {} using {} workers\n", .{ radius, num_workers });
         try @import("blur.zig").gaussianBlur(allocator, &src, &dst, @intCast(radius), num_workers);
@@ -110,10 +122,10 @@ pub fn main() !void {
         std.debug.print("Applying Kuwahara filter with radius {} using {} workers\n", .{ radius, num_workers });
         try @import("kuwahara.zig").applyKuwaharaFilter(allocator, &src, &dst, radius, num_workers);
     } else {
-        std.debug.print("Unknown operation: {s}. Use 'blur' or 'kuwahara'\n", .{operation});
+        std.debug.print("Unknown operation: {s}. Use 'blur', 'kuwahara', or 'monte_carlo'\n", .{operation});
         return;
     }
-    
+
     const filter_time = timer.lap();
     std.debug.print("Filter time: {}ms\n", .{filter_time / 1_000_000});
 

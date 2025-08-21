@@ -38,7 +38,8 @@ func saveImage(path string, img image.Image) error {
 
 func printUsage(program string) {
 	fmt.Fprintf(os.Stderr, "Usage: %s <operation> <input_image> <output_image> <radius> <workers>\n", program)
-	fmt.Fprintf(os.Stderr, "  operation: 'blur' or 'kuwahara'\n")
+	fmt.Fprintf(os.Stderr, "  operation: 'blur', 'kuwahara', or 'monte_carlo'\n")
+	fmt.Fprintf(os.Stderr, "  For monte_carlo: radius represents the number of samples\n")
 }
 
 func main() {
@@ -65,6 +66,16 @@ func main() {
 		numWorkers = runtime.NumCPU()
 	}
 
+	if operation == "monte_carlo" {
+		samples := radius
+		fmt.Printf("Monte Carlo Pi estimation with %d samples using %d workers\n", samples, numWorkers)
+		start := time.Now()
+		monteCarloOperation(samples, numWorkers)
+		elapsed := time.Since(start)
+		fmt.Printf("Time: %dms\n", elapsed.Milliseconds())
+		return
+	}
+
 	start := time.Now()
 	srcImg, err := loadImage(inputPath)
 	if err != nil {
@@ -79,7 +90,7 @@ func main() {
 
 	var dstImg *image.RGBA
 	start = time.Now()
-	
+
 	switch operation {
 	case "blur":
 		fmt.Printf("Applying Gaussian blur with radius %d using %d workers\n", radius, numWorkers)
@@ -88,10 +99,10 @@ func main() {
 		fmt.Printf("Applying Kuwahara filter with radius %d using %d workers\n", radius, numWorkers)
 		dstImg = applyKuwaharaFilter(srcImg, radius, numWorkers)
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown operation: %s. Use 'blur' or 'kuwahara'\n", operation)
+		fmt.Fprintf(os.Stderr, "Unknown operation: %s. Use 'blur', 'kuwahara', or 'monte_carlo'\n", operation)
 		os.Exit(1)
 	}
-	
+
 	filterTime := time.Since(start)
 	fmt.Printf("Filter time: %dms\n", filterTime.Milliseconds())
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import numpy as np
-from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Pool
 import time
 
 class IntegralImage:
@@ -51,7 +51,8 @@ class IntegralImage:
         else:
             return np.zeros(4), np.zeros(4)
 
-def kuwahara_filter_chunk(img_array, integral, radius, start_y, end_y):
+def kuwahara_filter_chunk(args):
+    img_array, integral, radius, start_y, end_y = args
     height, width, channels = img_array.shape
     result = np.zeros((end_y - start_y, width, channels), dtype=np.float32)
     
@@ -95,18 +96,18 @@ def apply_kuwahara_filter(img_array, radius, num_workers):
     # Apply Kuwahara filter
     output = np.zeros_like(img_array, dtype=np.float32)
     
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = []
+    with Pool(processes=num_workers) as pool:
+        tasks = []
         rows_per_worker = height // num_workers
         
         for i in range(num_workers):
             start_y = i * rows_per_worker
             end_y = start_y + rows_per_worker if i < num_workers - 1 else height
-            future = executor.submit(kuwahara_filter_chunk, img_array, integral, radius, start_y, end_y)
-            futures.append(future)
+            tasks.append((img_array, integral, radius, start_y, end_y))
         
-        for future in futures:
-            start_y, end_y, chunk_result = future.result()
+        results = pool.map(kuwahara_filter_chunk, tasks)
+        
+        for start_y, end_y, chunk_result in results:
             output[start_y:end_y] = chunk_result
     
     return output

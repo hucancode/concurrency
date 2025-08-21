@@ -1,12 +1,14 @@
 mod blur;
 mod kuwahara;
+mod monte_carlo;
 
 use std::env;
 use std::time::Instant;
 
 fn print_usage(program: &str) {
     eprintln!("Usage: {} <operation> <input_image> <output_image> <radius> [threads]", program);
-    eprintln!("  operation: 'blur' or 'kuwahara'");
+    eprintln!("  operation: 'blur', 'kuwahara', or 'monte_carlo'");
+    eprintln!("  For monte_carlo: radius represents number of samples");
     eprintln!("  threads: optional, defaults to 4");
 }
 
@@ -25,6 +27,16 @@ fn main() {
     let num_threads: usize = args.get(5)
         .and_then(|s| s.parse().ok())
         .unwrap_or(4);
+
+    if operation == "monte_carlo" {
+        let samples = radius as usize;
+        println!("Monte Carlo Pi estimation with {} samples using {} workers", samples, num_threads);
+        let start = Instant::now();
+        monte_carlo::monte_carlo_operation(samples, num_threads);
+        let elapsed = start.elapsed();
+        println!("Time: {}ms", elapsed.as_millis());
+        return;
+    }
 
     let start = Instant::now();
     let img = image::open(input_path).expect("Failed to load image").to_rgba8();
@@ -45,7 +57,7 @@ fn main() {
             kuwahara::apply_kuwahara_filter(&img, radius, num_threads)
         },
         _ => {
-            eprintln!("Unknown operation: {}. Use 'blur' or 'kuwahara'", operation);
+            eprintln!("Unknown operation: {}. Use 'blur', 'kuwahara', or 'monte_carlo'", operation);
             std::process::exit(1);
         }
     };

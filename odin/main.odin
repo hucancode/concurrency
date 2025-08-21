@@ -20,7 +20,7 @@ load_image :: proc(path: string) -> (^Image, bool) {
     c_path := strings.clone_to_cstring(path)
     defer delete(c_path)
     data := stbi.load(c_path, &width, &height, &channels, 4)
-    
+
     if data == nil {
         return nil, false
     }
@@ -29,7 +29,7 @@ load_image :: proc(path: string) -> (^Image, bool) {
     img.width = int(width)
     img.height = int(height)
     img.channels = 4  // Always force 4 channels (RGBA)
-    
+
     size := img.width * img.height * 4
     img.data = slice.from_ptr(data, size)
 
@@ -61,7 +61,8 @@ free_image :: proc(img: ^Image) {
 
 print_usage :: proc(program: string) {
     fmt.eprintf("Usage: %s <operation> <input_image> <output_image> <radius> <workers>\n", program)
-    fmt.eprintf("  operation: 'blur' or 'kuwahara'\n")
+    fmt.eprintf("  operation: 'blur', 'kuwahara', or 'monte_carlo'\n")
+    fmt.eprintf("  For monte_carlo: radius represents number of samples\n")
 }
 
 main :: proc() {
@@ -75,6 +76,16 @@ main :: proc() {
     output_path := os.args[3]
     radius := strconv.atoi(os.args[4])
     num_workers := strconv.atoi(os.args[5])
+
+    if operation == "monte_carlo" {
+        samples := radius
+        fmt.printf("Monte Carlo Pi estimation with %d samples using %d workers\n", samples, num_workers)
+        start_time := time.now()
+        monte_carlo_operation(samples, num_workers)
+        elapsed := time.diff(start_time, time.now())
+        fmt.printf("Time: %.2fms\n", time.duration_milliseconds(elapsed))
+        return
+    }
 
     start_time := time.now()
     src, ok := load_image(input_path)
@@ -90,7 +101,7 @@ main :: proc() {
 
     dst_data := make([]u8, src.width * src.height * 4)
     defer delete(dst_data)
-    
+
     dst := Image{
         width = src.width,
         height = src.height,
@@ -107,7 +118,7 @@ main :: proc() {
         fmt.printf("Applying Kuwahara filter with radius %d using %d workers\n", radius, num_workers)
         apply_kuwahara_filter(src, &dst, radius, num_workers)
     } else {
-        fmt.eprintf("Unknown operation: %s. Use 'blur' or 'kuwahara'\n", operation)
+        fmt.eprintf("Unknown operation: %s. Use 'blur', 'kuwahara', or 'monte_carlo'\n", operation)
         os.exit(1)
     }
 

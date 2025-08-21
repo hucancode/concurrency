@@ -4,8 +4,8 @@ import time
 import math
 import numpy as np
 from PIL import Image
-from concurrent.futures import ThreadPoolExecutor
-import threading
+from multiprocessing import Pool
+import functools
 
 def generate_gaussian_kernel(radius):
     size = 2 * radius + 1
@@ -19,7 +19,8 @@ def generate_gaussian_kernel(radius):
     kernel /= kernel.sum()
     return kernel
 
-def blur_horizontal_chunk(img_array, kernel, radius, start_y, end_y):
+def blur_horizontal_chunk(args):
+    img_array, kernel, radius, start_y, end_y = args
     height, width, channels = img_array.shape
     result = np.zeros((end_y - start_y, width, channels), dtype=np.float32)
     
@@ -43,18 +44,18 @@ def apply_gaussian_blur(img_array, radius, num_workers):
     # Phase 1: Horizontal blur
     horizontal = np.zeros_like(img_array, dtype=np.float32)
     
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = []
+    with Pool(processes=num_workers) as pool:
+        tasks = []
         rows_per_worker = height // num_workers
         
         for i in range(num_workers):
             start_y = i * rows_per_worker
             end_y = start_y + rows_per_worker if i < num_workers - 1 else height
-            future = executor.submit(blur_horizontal_chunk, img_array, kernel, radius, start_y, end_y)
-            futures.append(future)
+            tasks.append((img_array, kernel, radius, start_y, end_y))
         
-        for future in futures:
-            start_y, end_y, chunk_result = future.result()
+        results = pool.map(blur_horizontal_chunk, tasks)
+        
+        for start_y, end_y, chunk_result in results:
             horizontal[start_y:end_y] = chunk_result
     
     # Transpose for vertical pass
@@ -64,18 +65,18 @@ def apply_gaussian_blur(img_array, radius, num_workers):
     height_t, width_t = transposed.shape[:2]
     blurred = np.zeros_like(transposed, dtype=np.float32)
     
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = []
+    with Pool(processes=num_workers) as pool:
+        tasks = []
         rows_per_worker = height_t // num_workers
         
         for i in range(num_workers):
             start_y = i * rows_per_worker
             end_y = start_y + rows_per_worker if i < num_workers - 1 else height_t
-            future = executor.submit(blur_horizontal_chunk, transposed, kernel, radius, start_y, end_y)
-            futures.append(future)
+            tasks.append((transposed, kernel, radius, start_y, end_y))
         
-        for future in futures:
-            start_y, end_y, chunk_result = future.result()
+        results = pool.map(blur_horizontal_chunk, tasks)
+        
+        for start_y, end_y, chunk_result in results:
             blurred[start_y:end_y] = chunk_result
     
     # Transpose back

@@ -18,6 +18,7 @@ typedef struct {
 // External filter functions
 void gaussian_blur(Image* src, Image* dst, int radius, int num_workers);
 void apply_kuwahara_filter(Image* src, Image* dst, int radius, int num_workers);
+void monte_carlo_operation(int total_samples, int num_workers);
 
 Image* load_image(const char* filename) {
     int width, height, channels;
@@ -25,13 +26,13 @@ Image* load_image(const char* filename) {
     if (!data) {
         return NULL;
     }
-    
+
     Image* img = (Image*)malloc(sizeof(Image));
     img->width = width;
     img->height = height;
     img->channels = 4;
     img->data = data;
-    
+
     return img;
 }
 
@@ -57,7 +58,8 @@ long get_time_ms() {
 
 void print_usage(const char* program) {
     fprintf(stderr, "Usage: %s <operation> <input_image> <output_image> <radius> <workers>\n", program);
-    fprintf(stderr, "  operation: 'blur' or 'kuwahara'\n");
+    fprintf(stderr, "  operation: 'blur', 'kuwahara', or 'monte_carlo'\n");
+    fprintf(stderr, "  For monte_carlo: radius represents number of samples\n");
 }
 
 int main(int argc, char* argv[]) {
@@ -65,13 +67,23 @@ int main(int argc, char* argv[]) {
         print_usage(argv[0]);
         return 1;
     }
-    
+
     const char* operation = argv[1];
     const char* input_path = argv[2];
     const char* output_path = argv[3];
     int radius = atoi(argv[4]);
     int num_workers = atoi(argv[5]);
-    
+
+    if (strcmp(operation, "monte_carlo") == 0) {
+        int samples = radius;
+        printf("Monte Carlo Pi estimation with %d samples using %d workers\n", samples, num_workers);
+        long start_time = get_time_ms();
+        monte_carlo_operation(samples, num_workers);
+        long elapsed = get_time_ms() - start_time;
+        printf("Time: %ldms\n", elapsed);
+        return 0;
+    }
+
     long start_time = get_time_ms();
     Image* src = load_image(input_path);
     if (!src) {
@@ -79,16 +91,16 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     long load_time = get_time_ms() - start_time;
-    
+
     printf("Image loaded: %dx%d pixels, %d channels\n", src->width, src->height, src->channels);
     printf("Load time: %ldms\n", load_time);
-    
+
     Image* dst = (Image*)malloc(sizeof(Image));
     dst->width = src->width;
     dst->height = src->height;
     dst->channels = src->channels;
     dst->data = (unsigned char*)malloc(src->width * src->height * 4);
-    
+
     start_time = get_time_ms();
     if (strcmp(operation, "blur") == 0) {
         printf("Applying Gaussian blur with radius %d using %d workers\n", radius, num_workers);
@@ -97,16 +109,16 @@ int main(int argc, char* argv[]) {
         printf("Applying Kuwahara filter with radius %d using %d workers\n", radius, num_workers);
         apply_kuwahara_filter(src, dst, radius, num_workers);
     } else {
-        fprintf(stderr, "Unknown operation: %s. Use 'blur' or 'kuwahara'\n", operation);
+        fprintf(stderr, "Unknown operation: %s. Use 'blur', 'kuwahara', or 'monte_carlo'\n", operation);
         free_image(src);
         free(dst->data);
         free(dst);
         return 1;
     }
     long filter_time = get_time_ms() - start_time;
-    
+
     printf("Filter time: %ldms\n", filter_time);
-    
+
     start_time = get_time_ms();
     if (!save_image(output_path, dst)) {
         fprintf(stderr, "Failed to save image: %s\n", output_path);
@@ -116,13 +128,13 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     long save_time = get_time_ms() - start_time;
-    
+
     printf("Save time: %ldms\n", save_time);
     printf("Total time: %ldms\n", load_time + filter_time + save_time);
-    
+
     free_image(src);
     free(dst->data);
     free(dst);
-    
+
     return 0;
 }

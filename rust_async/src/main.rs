@@ -1,5 +1,6 @@
 mod blur;
 mod kuwahara;
+mod monte_carlo;
 
 use blur::apply_gaussian_blur_async;
 use kuwahara::apply_kuwahara_filter_async;
@@ -9,14 +10,15 @@ use std::time::Instant;
 
 fn print_usage(program: &str) {
     eprintln!("Usage: {} <operation> <input_image> <output_image> <radius> [tasks]", program);
-    eprintln!("  operation: 'blur' or 'kuwahara'");
+    eprintln!("  operation: 'blur', 'kuwahara', or 'monte_carlo'");
+    eprintln!("  For monte_carlo: radius represents number of samples");
     eprintln!("  tasks: optional, defaults to 4");
 }
 
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() < 5 {
         print_usage(&args[0]);
         std::process::exit(1);
@@ -29,6 +31,16 @@ async fn main() {
     let num_tasks: usize = args.get(5)
         .and_then(|s| s.parse().ok())
         .unwrap_or(4);
+
+    if operation == "monte_carlo" {
+        let samples = radius as usize;
+        println!("Monte Carlo Pi estimation with {} samples using {} async tasks", samples, num_tasks);
+        let start = Instant::now();
+        monte_carlo::monte_carlo_operation_async(samples, num_tasks).await;
+        let elapsed = start.elapsed();
+        println!("Time: {}ms", elapsed.as_millis());
+        return;
+    }
 
     let start = Instant::now();
     let img = image::open(input_path).expect("Failed to load image");
@@ -49,7 +61,7 @@ async fn main() {
             apply_kuwahara_filter_async(&img, radius, num_tasks).await
         },
         _ => {
-            eprintln!("Unknown operation: {}. Use 'blur' or 'kuwahara'", operation);
+            eprintln!("Unknown operation: {}. Use 'blur', 'kuwahara', or 'monte_carlo'", operation);
             std::process::exit(1);
         }
     };
