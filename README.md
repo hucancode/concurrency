@@ -22,6 +22,8 @@ Take a look at the following table where we approximate PI number using Monte-Ca
 
 So our claim is true. Adding more threads is indeed helps! But 100x more threads does not mean 100x more speed. You can read more about the math [here](https://en.wikipedia.org/wiki/Amdahl%27s_law)
 
+In real world applications, pure computational algorithm are rare. We should not expect our code to be always 8x faster like the above table. In the next section we will do some more realistic work load to see what we should expect.
+
 ## Real world workload
 
 To simulate a real world application. Let's implement a image processor.
@@ -87,7 +89,7 @@ Benchmarks performed on `wave.png` (2048x1024) with radius 5.
 | **C**            | 382.6 ms | 293.5 ms  | 271.8 ms   | **269.5 ms** | 271.1 ms    |
 | **Odin**         | 363.4 ms | 333.4 ms  | 326.2 ms   | **319.4 ms** | 324.2 ms    |
 | **Go**           | 1272 ms  | 807.5 ms  | 721.4 ms   | **707.9 ms** | 716.2 ms    |
-| **Python**       | 51 s     | 51 s      | 52 s       | 52 s         | 52 s        |
+| **Python**       | 75.9 s   | 38.9 s    | 21.2 s     | 14.3 s       | 13.0 s      |
 
 ### Blur Processing Only (excluding I/O):
 
@@ -101,7 +103,7 @@ Benchmarks performed on `wave.png` (2048x1024) with radius 5 and 64 workers.
 | **Rust threads** | 31 ms           |
 | **Rust async**   | 32 ms           |
 | **Go**           | 144 ms          |
-| **Python**       | 50 s            |
+| **Python**       | 14 s            |
 
 ### Key Observations
 
