@@ -103,7 +103,7 @@ bench-zig: zig
 		"./zig/zig-out/bin/filter_zig $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
 		"./zig/zig-out/bin/filter_zig $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
 
-bench-python: 
+bench-python:
 	@echo "Benchmarking Python implementation..."
 	hyperfine --warmup 3 --runs 10 \
 		"python3 ./python/main.py $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 1" \
@@ -134,8 +134,6 @@ help:
 	@echo "  make rust-async  - Build Rust async implementation"
 	@echo "  make odin        - Build Odin implementation"
 	@echo "  make zig         - Build Zig implementation"
-	@echo "  make python      - Set up Python implementation"
-	@echo "  make javascript  - Set up JavaScript/Bun implementation"
 	@echo "  make clean       - Remove all built binaries and test images"
 	@echo ""
 	@echo "Benchmark targets:"
