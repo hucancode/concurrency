@@ -1,9 +1,7 @@
 # Concurrency Performance Comparison
 
-This project compares different concurrency models across Go, Rust, and Odin by implementing a CPU-intensive Gaussian blur algorithm for images. *My experience level for each language is different and may influence the result*
-
-- I will try to get this up to date with modern and idiomatic implementation for each language I know.
-- I will **not** aim to make the fastest program. I want to see if I were to put in reasonable effort for each language of choice, how fast should I expect it to run.
+This project compares different concurrency models across C, Zig, Go, Rust, and Odin by implementing a CPU-intensive Gaussian blur algorithm for images. I will aim to for the best practices and idioms of each language.
+*My experience level for each language is different and may influence the result*
 
 Basically we are taking this in
 
@@ -15,6 +13,7 @@ And produce this out
 
 ## Implementations
 
+- **C (threads)**: OS threads
 - **Go (async)**: Goroutines (async)
 - **Rust (threads)**: OS threads
 - **Rust (async)**: Tokio async tasks
@@ -33,8 +32,7 @@ All implementations use the same Gaussian blur algorithm:
 - **Image transpose**: Transpose data between passes for cache-friendly memory access patterns
 - **Row buffering**: Process entire rows before writing to minimize lock contention
 - **Pre-assigned work**: Avoid work-stealing patterns that cause contention
-- **SIMD vectorization (Odin & Zig)**: Process multiple pixels at once using vector operations. Odin uses `#simd[16]f32` vectors while Zig uses `@Vector(16, f32)`
-- **More about SIMD**: We can write SIMD code with Rust, Go, C but it is currently not officially supported and encouraged in those languages
+- **SIMD vectorization (Odin & Zig)**: Process multiple pixels at once using vector operations. Odin uses `#simd[16]f32` vectors while Zig uses `@Vector(16, f32)`. Technically we can use SIMD on all languages if we try hard enough but to maintain fairness I will not implement SIMD where it is not encouraged by the language design.
 
 ## Running
 
@@ -54,59 +52,55 @@ INPUT_IMAGE=large.jpg WORKERS=16 make bench
 
 ## Benchmark Results
 
-Benchmarks performed on `wave.png` (3000x1688) with radius 5.
-
-### Blur Processing Only (excluding I/O):
-
-| Implementation | 1 Worker | 4 Workers | 16 Workers | 64 Workers | 128 Workers | Best Performance |
-|---------------|----------|-----------|------------|------------|-------------|------------------|
-| **Go** | 466 ms | 233 ms | 193 ms | 200 ms | 188 ms | 188 ms @ 128 workers |
-| **Rust threads** | 328 ms | 106 ms | 67 ms | 58 ms | 68 ms | 58 ms @ 64 workers |
-| **Rust async** | 308 ms | 111 ms | 69 ms | 64 ms | 66 ms | 64 ms @ 64 workers |
-| **Odin** | 263 ms | 91 ms | 63 ms | 59 ms | 59 ms | 59 ms @ 64-128 workers |
-| **Zig** | 141 ms | 51 ms | 33 ms | 37 ms | 36 ms | 33 ms @ 16 workers |
+Benchmarks performed on `wave.png` (2048x1024) with radius 5.
 
 ### Total Time (including image load/save):
 
-| Implementation | 4 Workers | 64 Workers | Relative to Best |
-|----------------|-----------|------------|------------------|
-| **Rust threads** | 190 ms | **145 ms** | 1.00x |
-| **Rust async** | 196 ms | 147 ms | 1.01x slower |
-| **Zig** | 634 ms | 561 ms | 3.87x slower |
-| **Odin** | 805 ms | 774 ms | 5.34x slower |
-| **Go** | 1642 ms | 1592 ms | 10.99x slower |
+| Implementation | 1 Worker | 4 Workers | 16 Workers | 64 Workers | 128 Workers | Best Time |
+|----------------|----------|-----------|------------|------------|-------------|-----------|
+| **Rust async** | 169.4 ms | 82.1 ms | 65.9 ms | 65.1 ms | **64.3 ms** | 64.3 ms @ 128 |
+| **Rust threads** | 176.7 ms | 86.6 ms | 68.5 ms | 66.7 ms | 68.4 ms | 66.7 ms @ 64 |
+| **Zig** | 282.7 ms | 262.1 ms | 256.4 ms | 253.1 ms | 256.5 ms | 253.1 ms @ 64 |
+| **C** | 382.6 ms | 293.5 ms | 271.8 ms | 269.5 ms | 271.1 ms | 269.5 ms @ 64 |
+| **Odin** | 363.4 ms | 333.4 ms | 326.2 ms | 319.4 ms | 324.2 ms | 319.4 ms @ 64 |
+| **Go** | 1272 ms | 807.5 ms | 721.4 ms | 707.9 ms | 716.2 ms | 707.9 ms @ 64 |
 
-### Timing Breakdown (4 workers on wave.png)
+### Blur Processing Only (excluding I/O):
 
-Breaking down where time is spent in each implementation:
+Benchmarks performed on `wave.png` (2048x1024) with radius 5 and 64 workers.
 
-| Implementation | Image Load | Blur Processing | Image Save | Total | Processing % |
-|----------------|------------|-----------------|------------|-------|--------------|
-| **Go** | 160 ms | 231 ms | 1297 ms | 1689 ms | 13.7% |
-| **Rust threads** | 47 ms | 119 ms | 37 ms | 202 ms | 58.9% |
-| **Rust async** | 48 ms | 120 ms | 35 ms | 202 ms | 59.4% |
-| **Zig** | 98 ms | 56 ms | 480 ms | 634 ms | 8.8% |
-| **Odin** | 139 ms | 98 ms | 622 ms | 859 ms | 11.4% |
+| Implementation | Processing Time | I/O Overhead |
+|----------------|----------------|--------------|
+| **Odin** | 25 ms | 302 ms |
+| **Zig** | 27 ms | 226 ms |
+| **C** | 28 ms | 241 ms |
+| **Rust threads** | 31 ms | 34 ms |
+| **Rust async** | 32 ms | 31 ms |
+| **Go** | 144 ms | 570 ms |
+
 
 ### Key Observations
 
-#### Zig (threads)
-**Fastest blur performance** at 33 ms with 16 threads. Achieves excellent scaling from 141 ms (1 thread) to 33 ms (16 threads), a 4.3x speedup.
-
-#### Odin (threads)
-Strong blur processing at 59 ms with 64-128 threads. Excellent scaling from 263 ms (1 thread) to 59 ms (64+ threads), a 4.5x speedup.
+#### Rust (async)
+**Best overall performance** at 63.6 ms total time. Minimal I/O overhead (31 ms) thanks to efficient image library. Slightly edges out the threads version.
 
 #### Rust (threads)
-**Best overall performance** with 58 ms at 64 threads. Shows near-linear scaling from 328 ms (1 thread) to 58 ms (64 threads), a 5.7x speedup. When the thread count goes to 128, performance drops significantly as expected due to increased context switching overhead.
+Nearly identical performance to async at 65.2 ms. Both Rust implementations show excellent I/O efficiency with only ~30-35 ms overhead.
 
-#### Rust (async)
-Very similar to threads with 64 ms at 64 tasks. Scales well from 308 ms (1 thread) to 64 ms (64 tasks), a 4.8x speedup. I thought async version would handle context switching more efficiently, but it doesn't seem to be different from the thread-based implementation.
+#### C (threads)
+Fast blur processing at 28 ms but significant I/O overhead (241 ms) from STB image library. Total time of 269.5 ms.
+
+#### Zig (threads)
+**Fastest blur processing** at 27 ms, demonstrating excellent SIMD optimization. However, I/O overhead (226 ms) limits total performance to 253.5 ms.
+
+#### Odin (threads)
+**Second fastest blur processing** at 25 ms with SIMD optimization. Highest I/O overhead (302 ms) results in 327.5 ms total time.
 
 #### Go (async)
-**Poorest scaling** with best time of 188 ms at 128 workers. Only achieves 2.5x speedup from 1 to 128 workers (466 ms → 188 ms). The goroutine overhead and channel communication are efficient, but it pales in comparison to other system languages
+Slowest blur processing (144 ms) and massive I/O overhead (570 ms). Total time of 714 ms is over 11x slower than Rust
 
 ## And The Winner Is
 
-- **Fastest total time**: Rust threads at 145 ms (including I/O)
-- **Fastest blur processing**: Zig at 33 ms, followed by Rust threads at 58 ms and Odin at 59 ms
-- **I/O bottleneck**: Go has 1400+ ms overhead, Odin has 700+ ms, Zig has 528+ ms. Rust excels with only ~80ms I/O overhead due to efficient image library implementation.
+- **Fastest total time**: Rust async at 63.6 ms (including I/O)
+- **Fastest blur processing**: Odin at 25 ms, followed by Zig at 27 ms and C at 28 ms, basically the same
+- **Best I/O efficiency**: Rust implementations with only ~30-35 ms overhead. Odin, C, Zig has around 200-300 ms. Go has 570 ms overhead
