@@ -65,7 +65,7 @@ Benchmarks performed on `wave.png` (2048x1024) with radius 5.
 | **C** | 382.6 ms | 293.5 ms | 271.8 ms | 269.5 ms | 271.1 ms | 269.5 ms @ 64 |
 | **Odin** | 363.4 ms | 333.4 ms | 326.2 ms | 319.4 ms | 324.2 ms | 319.4 ms @ 64 |
 | **Go** | 1272 ms | 807.5 ms | 721.4 ms | 707.9 ms | 716.2 ms | 707.9 ms @ 64 |
-| **Python** | 50929 ms | 51366 ms | 52300 ms | 52368 ms | 52378 ms | 50929 ms @ 1 |
+| **Python** | 51 s | 51 s | 52 s | 52 s | 52 s | 51 s @ 1 |
 
 ### Blur Processing Only (excluding I/O):
 
@@ -79,7 +79,7 @@ Benchmarks performed on `wave.png` (2048x1024) with radius 5 and 64 workers.
 | **Rust threads** | 31 ms | 34 ms |
 | **Rust async** | 32 ms | 31 ms |
 | **Go** | 144 ms | 570 ms |
-| **Python** | 50434 ms | 495 ms |
+| **Python** | 50 s | 495 ms |
 
 
 ### Key Observations
