@@ -109,4 +109,4 @@ Benchmarks performed on `wave.png` (2048x1024) with radius 5 and 64 workers.
 
 - `Rust` seems to be the best performer (64.3ms) but if we look closely we can see that raw processing time is not much different between all languages except `Go`. `Rust` just happens to have better image library than `stb_image` used across `Zig` `Odin` `C`.
 - Despite having SIMD enabled, `Zig` and `Odin` version doesn't seem to be much faster than `Rust` and `C`.
-- And last but not least, eventhough the work load is highly independent, more thread doesn't always mean more performance for our use case. Actually I was expecting more speed up from threads, somewhere like 5x 10x improvement. But look how wrong I was.
+- And last but not least, eventhough the work load is highly independent, more thread doesn't always mean more performance for our use case. Actually I was expecting more speed up from threads, somewhere like 5x improvement. But look how wrong I was.
