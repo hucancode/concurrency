@@ -19,6 +19,7 @@ And produce this out
 - **Rust (async)**: Tokio async tasks
 - **Odin (threads)**: OS threads
 - **Zig (threads)**: OS threads
+- **Python (threads)**: Thread pool
 
 All implementations use the same Gaussian blur algorithm:
 - Divides the image into horizontal strips
@@ -64,6 +65,7 @@ Benchmarks performed on `wave.png` (2048x1024) with radius 5.
 | **C** | 382.6 ms | 293.5 ms | 271.8 ms | 269.5 ms | 271.1 ms | 269.5 ms @ 64 |
 | **Odin** | 363.4 ms | 333.4 ms | 326.2 ms | 319.4 ms | 324.2 ms | 319.4 ms @ 64 |
 | **Go** | 1272 ms | 807.5 ms | 721.4 ms | 707.9 ms | 716.2 ms | 707.9 ms @ 64 |
+| **Python** | 50929 ms | 51366 ms | 52300 ms | 52368 ms | 52378 ms | 50929 ms @ 1 |
 
 ### Blur Processing Only (excluding I/O):
 
@@ -77,6 +79,7 @@ Benchmarks performed on `wave.png` (2048x1024) with radius 5 and 64 workers.
 | **Rust threads** | 31 ms | 34 ms |
 | **Rust async** | 32 ms | 31 ms |
 | **Go** | 144 ms | 570 ms |
+| **Python** | 50434 ms | 495 ms |
 
 
 ### Key Observations
@@ -97,7 +100,10 @@ Fast blur processing at 28 ms but significant I/O overhead (241 ms) from STB ima
 **Second fastest blur processing** at 25 ms with SIMD optimization. Highest I/O overhead (302 ms) results in 327.5 ms total time.
 
 #### Go (async)
-Slowest blur processing (144 ms) and massive I/O overhead (570 ms). Total time of 714 ms is over 11x slower than Rust
+Slowest compiled language blur processing (144 ms) and massive I/O overhead (570 ms). Total time of 714 ms is over 11x slower than Rust.
+
+#### Python (threads)
+No comment. Only serve as a reference point for comparison
 
 ## And The Winner Is
 

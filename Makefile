@@ -8,7 +8,7 @@ WORKERS ?= 64
 OPERATION ?= blur
 
 # Build targets
-.PHONY: all clean c go rust rust-async odin zig bench bench-operation test
+.PHONY: all clean c go rust rust-async odin zig python bench bench-operation test
 
 all: c go rust rust-async odin zig
 
@@ -103,16 +103,26 @@ bench-zig: zig
 		"./zig/zig-out/bin/filter_zig $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
 		"./zig/zig-out/bin/filter_zig $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
 
+bench-python: 
+	@echo "Benchmarking Python implementation..."
+	hyperfine --warmup 3 --runs 10 \
+		"python3 ./python/main.py $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 1" \
+		"python3 ./python/main.py $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 4" \
+		"python3 ./python/main.py $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 16" \
+		"python3 ./python/main.py $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 64" \
+		"python3 ./python/main.py $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) 128"
+
 # Compare all implementations
 bench: all
 	@echo "Benchmarking $(OPERATION) operation with $(WORKERS) workers..."
 	hyperfine --warmup 2 --runs 5 \
-		-n "C $(OPERATION)" "./c/filter_c $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
-		-n "Go $(OPERATION)" "./go/filter_go $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
-		-n "Rust $(OPERATION)" "./rust/target/release/rust_blur $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
-		-n "Rust-async $(OPERATION)" "./rust_async/target/release/rust_blur_async $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
-		-n "Zig $(OPERATION)" "./zig/zig-out/bin/filter_zig $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
-		-n "Odin $(OPERATION)" "./odin/filter_odin $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)"
+		-n "C" "./c/filter_c $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
+		-n "Go" "./go/filter_go $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
+		-n "Rust" "./rust/target/release/rust_filter $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
+		-n "Rust-async" "./rust_async/target/release/rust_filter_async $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
+		-n "Odin" "./odin/filter_odin $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
+		-n "Zig" "./zig/zig-out/bin/filter_zig $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
+		-n "Python" "python3 ./python/main.py $(OPERATION) $(INPUT_IMAGE) $(OUTPUT_IMAGE) $(RADIUS) $(WORKERS)" \
 
 # Help target
 help:
@@ -124,6 +134,8 @@ help:
 	@echo "  make rust-async  - Build Rust async implementation"
 	@echo "  make odin        - Build Odin implementation"
 	@echo "  make zig         - Build Zig implementation"
+	@echo "  make python      - Set up Python implementation"
+	@echo "  make javascript  - Set up JavaScript/Bun implementation"
 	@echo "  make clean       - Remove all built binaries and test images"
 	@echo ""
 	@echo "Benchmark targets:"
