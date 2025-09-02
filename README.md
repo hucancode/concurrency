@@ -2,7 +2,7 @@
 
 ## Abstract
 
-If you ever wonder how multi-threading and asynchronous code speed up your program, wonder no more. This project compares different concurrency models across C, Zig, Go, Rust, and Odin by implementing a CPU-intensive Gaussian blur algorithm for images. I will aim to for the best practices and idioms of each language.
+If you ever wonder how parallel code speed up your program, wonder no more. This project compares different concurrency models across C, Zig, Go, Rust, and Odin by implementing a CPU-intensive Gaussian blur algorithm for images. I will aim for the best practices on each language.
 _My experience level for each language is different and may influence the result_
 
 ### Pure computation workload (the easy case)
