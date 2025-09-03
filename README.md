@@ -10,7 +10,9 @@ Before going in to the real world example. Let's examine the theoritical pure co
 
 With pure computation workload, almost everything happens inside the CPU. So the parallelism speed up is significant.
 Take a look at the following table where we approximate PI number using Monte-Carlo approximation (500 million samples):
-
+<details>
+  <summary>Data</summary>
+  
 | Implementation   | 1 Worker | 4 Workers | 16 Workers | 64 Workers |
 | ---------------- | -------- | --------- | ---------- | ---------- |
 | **Rust Async**   | 777 ms   | 212 ms    | 104 ms     | 102 ms     |
@@ -19,6 +21,10 @@ Take a look at the following table where we approximate PI number using Monte-Ca
 | **C**            | 2506 ms  | 651 ms    | 290 ms     | 274 ms     |
 | **Zig**          | 2494 ms  | 642 ms    | 277 ms     | 264 ms     |
 | **Odin**         | 3810 ms  | 563 ms    | 332 ms     | 322 ms     |
+
+</details>
+
+<img width="804" height="493" alt="Screenshot 2025-09-03 at 13 25 03" src="https://github.com/user-attachments/assets/a2f78526-e7f3-44ac-a4b6-21d677bc325b" />
 
 So our claim is true. Adding more threads is indeed helps! But 100x more threads does not mean 100x more speed. You can read more about the math [here](https://en.wikipedia.org/wiki/Amdahl%27s_law)
 
@@ -80,7 +86,9 @@ INPUT_IMAGE=large.jpg WORKERS=16 make bench
 Benchmarks performed on `wave.png` (2048x1024) with radius 5.
 
 ### Total Time (including image load/save):
-
+<details>
+  <summary>Data</summary>
+  
 | Implementation   | 1 Worker | 4 Workers | 16 Workers | 64 Workers   | 128 Workers |
 | ---------------- | -------- | --------- | ---------- | ------------ | ----------- |
 | **Rust async**   | 169.4 ms | 82.1 ms   | 65.9 ms    | 65.1 ms      | **64.3 ms** |
@@ -90,6 +98,10 @@ Benchmarks performed on `wave.png` (2048x1024) with radius 5.
 | **Odin**         | 363.4 ms | 333.4 ms  | 326.2 ms   | **319.4 ms** | 324.2 ms    |
 | **Go**           | 1272 ms  | 807.5 ms  | 721.4 ms   | **707.9 ms** | 716.2 ms    |
 | **Python**       | 75.9 s   | 38.9 s    | 21.2 s     | 14.3 s       | 13.0 s      |
+
+</details>
+
+<img width="907" height="559" alt="Screenshot 2025-09-03 at 13 26 30" src="https://github.com/user-attachments/assets/8a6c0659-85a7-4296-ac65-41af76269186" />
 
 ### Blur Processing Only (excluding I/O):
 
